@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+env/
+venv/
+.venv/
+uv.lock
+*.egg-info/
+dist/
+build/
+.eggs/
+data/
+scraper/__pycache__/
+scraper/climebot_scraper/__pycache__/
+backend/app/__pycache__/
+backend/app/core/__pycache__/
+
+# Environment — never commit secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+.token
+
+# Data — large files live outside git
+data/**
+!data/.gitkeep
+
+# Qdrant storage
+qdrant_storage/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# pre-commit
+.secrets.baseline
+
+# Scrapy artefacts
+scraper/.scrapy/
+scraper/**/*.csv
+scraper/**/*.jl
