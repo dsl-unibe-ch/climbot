@@ -22,11 +22,18 @@ async def chat(request: ChatRequest, _user: dict = Depends(verify_token)) -> Str
 
     query_embedding = embed_texts([last_user_msg])[0]
 
-    text_hits = await search_async(settings.qdrant_collection_text, query_embedding, top_k=5)
+    text_hits = await search_async(settings.qdrant_collection_text, query_embedding, top_k=10)
     image_hits = await search_async(settings.qdrant_collection_images, query_embedding, top_k=2)
 
-    context_parts = [h.payload.get("content", "") for h in text_hits]
-    context_parts += [h.payload.get("content", "") for h in image_hits]
+    if not text_hits and not image_hits:
+        return StreamingResponse(
+            _empty_store_response(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    context_parts = [h.payload.get("content", "") for h in text_hits if h is not None]
+    context_parts += [h.payload.get("content", "") for h in image_hits if h is not None]
     context = "\n\n---\n\n".join(filter(None, context_parts))
 
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
@@ -66,7 +73,7 @@ async def _sse_stream(
         {
             "source": h.payload.get("source", "unknown"),
             "score": round(h.score, 3),
-            "snippet": h.payload.get("description", "")[:300],
+            "snippet": h.payload.get("content", "")[:300],
             "page": h.payload.get("page"),
             "type": "image",
             "image_base64": h.payload.get("image_base64", ""),
@@ -75,4 +82,11 @@ async def _sse_stream(
         for h in image_hits
     ]
     yield f"data: {json.dumps({'sources': sources})}\n\n".encode()
+    yield b"data: [DONE]\n\n"
+
+
+async def _empty_store_response() -> AsyncGenerator[bytes, None]:
+    msg = "The knowledge base is empty. Run `make ingest` to index documents before querying."
+    yield f"data: {json.dumps({'token': msg})}\n\n".encode()
+    yield f"data: {json.dumps({'sources': []})}\n\n".encode()
     yield b"data: [DONE]\n\n"

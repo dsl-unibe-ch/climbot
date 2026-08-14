@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,27 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 _BACKEND = os.environ.get("BACKEND_URL", "http://localhost:8000")
+
+
+def render_sources(sources: list) -> None:
+    if not sources:
+        return
+    st.caption(f"📎 **{len(sources)} source(s)**")
+    for src in sources:
+        icon = "🖼️" if src.get("type") == "image" else "📄"
+        label = f"{icon} {src['source']}"
+        if src.get("page") is not None:
+            label += f"  ·  p. {src['page']}"
+        label += f"  ·  score {src['score']}"
+        with st.expander(label, expanded=False):
+            if src.get("type") == "image" and src.get("image_base64"):
+                img_bytes = base64.b64decode(src["image_base64"])
+                st.image(img_bytes, use_column_width=True)
+            snippet = src.get("snippet", "").strip()
+            if snippet:
+                st.caption(snippet)
+            elif src.get("type") != "image":
+                st.markdown("_No preview available._")
 
 
 def render_chat_history() -> None:

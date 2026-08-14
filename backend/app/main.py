@@ -4,9 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.api import chat, health, ingest, search
+from app.api import chat, health, search
 from app.config import get_settings
-from app.core.vectorstore import ensure_collections
+from app.core.vectorstore import ensure_collections_async
 
 settings = get_settings()
 
@@ -14,7 +14,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
     logger.info("ClimeBot backend starting — ensuring Qdrant collections…")
-    ensure_collections()
+    await ensure_collections_async()
     logger.info("Ready.")
     yield
     logger.info("ClimeBot backend shutting down.")
@@ -33,4 +33,3 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(search.router)
-app.include_router(ingest.router)

@@ -1,34 +1,17 @@
 version: "3.9"
 
 services:
-  qdrant:
-    image: qdrant/qdrant:v1.12.0
-    container_name: climebot-qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_storage:/qdrant/storage
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
-      interval: 20s
-      timeout: 10s
-      retries: 5
-
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: climebot-backend
-    env_file: .env
+    env_file: ./backend/.env
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "8000:8000"
     volumes:
       - ./data:/app/data
-    depends_on:
-      qdrant:
-        condition: service_healthy
+      - ./qdrant_storage:/app/qdrant_storage
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
@@ -41,13 +24,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: climebot-frontend
-    env_file: .env
+    env_file: ./frontend/.env
     ports:
-      - "${STREAMLIT_PORT:-8501}:8501"
+      - "8501:8501"
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
-
-volumes:
-  qdrant_storage:
