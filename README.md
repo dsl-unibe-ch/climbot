@@ -20,11 +20,12 @@ A RAG-powered climate change research assistant combining **FastAPI**, **Streaml
           │   FastAPI backend   :8000  │
           │   • /chat  (SSE stream)    │
           │   • /search               │──► OpenAI API
-          │   • /ingest               │    (embeddings + GPT-4o)
+          │                           │    (embeddings + GPT-4o)
           └─────────────┬──────────────┘
-                        │
+                        │ HTTP :6333
           ┌─────────────▼──────────────┐
-          │   Embedded Qdrant storage  │
+          │   Qdrant service (container)│
+          │   named volume: qdrant_data │
           │   climate_docs             │
           │   climate_images           │
           └────────────────────────────┘
@@ -98,8 +99,10 @@ AZURE_REDIRECT_URI=http://localhost:8501   # put this in frontend/.env
 
 OPENAI_API_KEY=sk-...
 
-# Embedded Qdrant storage used by the backend container
-QDRANT_PATH=/app/qdrant_storage
+# Qdrant runs as its own service (container). Bare-metal ETL/dev uses localhost;
+# the backend container reaches it as the compose service name "qdrant".
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
 
 # Put backend settings in backend/.env and frontend settings in frontend/.env.
 BACKEND_URL=http://backend:8000   # put this in frontend/.env
@@ -121,9 +124,11 @@ The following command installs the dependencies for scraper, frontend and backen
 make install-dev
 ```
 
-Qdrant runs in the backend process using local storage. The backend container
-persists that storage in `./qdrant_storage`; no Qdrant container is required.
-For bare-metal development, set `QDRANT_PATH=./qdrant_storage` in
+Qdrant runs as a **separate service** (a `qdrant/qdrant` container) with its data in
+a Docker named volume — nothing is stored inside the backend image. Both the backend
+and the bare-metal ETL talk to it over HTTP on port `6333`. `make qdrant-up` starts it
+and waits until it is ready; `make backend`, `make ingest`, and `make run-etl` all start
+it automatically as a dependency. For bare-metal dev keep `QDRANT_HOST=localhost` in
 `backend/.env` and `BACKEND_URL=http://localhost:8000` in `frontend/.env`.
 
 ### ETL — scrape and index data
@@ -182,7 +187,7 @@ make frontend  # Streamlit on http://localhost:8501
 # Build images
 make build
 
-# Start backend and frontend (Qdrant runs inside the backend container)
+# Start all services (Qdrant, backend, frontend)
 make up
 
 # Watch logs
@@ -200,49 +205,78 @@ Services:
 
 ## 5. Remote VM Deployment (production)
 
-### 5a. Copy project to VM
+> **What actually gets sent to the VM:** only **code** (via git) and **secrets + your curated documents** (via `scp`/`rsync`). The vector database is **never** shipped — it is rebuilt on the VM by running the ETL. Everything under `data/` and `qdrant_storage/` is git-ignored, so it is **not** on GitHub.
 
-```bash
-# From your local machine
-rsync -avz --exclude '.env' --exclude 'data/' \
-  ./ user@<vm-ip>:/opt/climebot/
-```
-
-### 5b. Set up service environment files on VM
+### 5a. Get the code onto the VM
 
 ```bash
 ssh user@<vm-ip>
+git clone https://github.com/dsl-unibe-ch/climbot /opt/climebot   # or, if already cloned: cd /opt/climebot && git pull
 cd /opt/climebot
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
-nano backend/.env    # Fill in backend secrets and production values
-nano frontend/.env   # Fill in frontend secrets and production values
 ```
 
-Key differences for production `.env`:
+### 5b. Send secrets and admin documents (these are NOT in git)
+
+Because the `.env` files and everything under `data/` are git-ignored, they must be copied manually **from your local machine**:
+
+```bash
+# Secrets
+scp backend/.env  user@<vm-ip>:/opt/climebot/backend/.env
+scp frontend/.env user@<vm-ip>:/opt/climebot/frontend/.env
+
+# ⚠️ Admin documents — git-ignored, so copy them explicitly
+rsync -avz data/admin_docs/ user@<vm-ip>:/opt/climebot/data/admin_docs/
+```
+
+> **Reminder:** `data/admin_docs/` holds your hand-curated sources (PDFs, notes) and is **not** on GitHub. If you skip this `scp`/`rsync`, the VM's index will contain only freshly scraped content and will be missing all of your manually added documents.
+
+### 5c. Production `.env` values
+
+Set these on the VM (`backend/.env` / `frontend/.env`):
 
 ```dotenv
 AZURE_REDIRECT_URI=https://climebot.example.com
 BACKEND_CORS_ORIGINS=https://climebot.example.com
-BACKEND_URL=http://backend:8000  # put this in frontend/.env
-QDRANT_PATH=/app/qdrant_storage  # put this in backend/.env
+BACKEND_URL=http://backend:8000   # frontend/.env
+QDRANT_HOST=qdrant                # backend/.env — the compose service name
+QDRANT_PORT=6333                  # backend/.env
 ```
 
-### 5c. Start production stack
+### 5d. Start the production stack
 
 ```bash
 make up-prod
 ```
 
-This uses the `docker-compose.prod.yml` overlay which:
+The `docker-compose.prod.yml` overlay:
+- Starts the **Qdrant service** with its persistent volume, published on **`127.0.0.1:6333` only** (reachable by the host ETL, never exposed publicly)
 - Removes direct port exposure for backend/frontend
 - Starts the nginx reverse proxy bound to `127.0.0.1:8080` only
 
 TLS is terminated by the VM's host-level reverse proxy, which forwards traffic to `127.0.0.1:8080`. The Docker containers have no direct public exposure.
 
-### 5d. Register the VM's URL as a Redirect URI in Entra ID
+### 5e. Run the full ETL on the VM
+
+Scraping **and** ingestion run on the **VM host** (bare metal via `uv`), exactly as they do locally — so the VM needs Python + `uv` installed (see §3). With the Qdrant service already running from `make up-prod`:
+
+```bash
+make run-etl   # scrape → sync admin docs → ingest into the running Qdrant service
+```
+
+The scraper downloads fresh content on the VM, your scp-copied `admin_docs/` are merged in, and everything is indexed into the Qdrant service over `localhost:6333`. Nothing DB-related was shipped — it is built in place.
+
+### 5f. Register the VM's URL as a Redirect URI in Entra ID
 
 In the Azure Portal, add `https://climebot.example.com` as an additional Redirect URI for your app registration (required for the OAuth login flow).
+
+### 5g. Smoke-test the deployment
+
+```bash
+docker compose ps                        # qdrant / backend / frontend should be healthy
+curl -s http://127.0.0.1:8080/health     # → {"status": "ok"}
+```
+
+Then open the site, sign in, and confirm chat answers cite the expected sources.
 
 ---
 
@@ -269,10 +303,11 @@ make install-dev   Install deps + pre-commit hooks
 make backend       Run FastAPI dev server (hot-reload)
 make frontend      Run Streamlit dev server
 make token         Acquire Entra ID token via device-code flow
-make run-etl       Scrape then wipe and reindex from scratch
+make qdrant-up     Start the Qdrant service and wait until ready
+make run-etl       Start Qdrant, scrape, then wipe and reindex from scratch
 make scrape        Run Scrapy spider (output → data/scraped_docs/)
 make sync-admin-docs  Copy admin_docs/ into scraped_docs/
-make ingest        Sync admin docs, drop collections, reindex from scratch
+make ingest        Start Qdrant, sync admin docs, drop collections, reindex
 make build         Build Docker images
 make up            Start all services (dev)
 make up-prod       Start with nginx overlay (production)
@@ -334,15 +369,6 @@ curl -N -X POST http://localhost:8000/chat \
 
 `-N` disables buffering so you see tokens stream in real time.
 
-### Trigger re-ingestion via API
-
-```bash
-curl -s -X POST http://localhost:8000/ingest \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  | python -m json.tool
-```
-
 ### FastAPI interactive docs
 
 ```
@@ -368,7 +394,8 @@ http://localhost:8000/docs
 | `LLM_TEMPERATURE` | `0.3` | Sampling temperature |
 | `LLM_MAX_TOKENS` | `16000` | Max tokens per response |
 | `LLM_TOP_P` | `1.0` | Nucleus sampling |
-| `QDRANT_PATH` | `/app/qdrant_storage` | Local Qdrant storage path inside the backend |
+| `QDRANT_HOST` | `localhost` | Qdrant service host — `qdrant` (service name) in Docker, `localhost` for bare-metal ETL |
+| `QDRANT_PORT` | `6333` | Qdrant service HTTP port |
 | `QDRANT_API_KEY` | _(empty)_ | Required for Qdrant Cloud |
 | `BACKEND_HOST` | `0.0.0.0` | Uvicorn bind address — **not a URL**; keep as `0.0.0.0` |
 | `BACKEND_PORT` | `8000` | Uvicorn listen port |

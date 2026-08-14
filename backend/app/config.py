@@ -29,8 +29,10 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 16000
     llm_top_p: float = 1.0
 
-    # Qdrant — /app/qdrant_storage in Docker; ./qdrant_storage for local dev
-    qdrant_path: str = "./qdrant_storage"
+    # Qdrant — connects to the Qdrant service (container). Use "qdrant" in Docker,
+    # "localhost" for bare-metal ETL against the loopback-published service port.
+    qdrant_host: str = "localhost"
+    qdrant_port: int = 6333
     qdrant_api_key: str = ""
     qdrant_collection_text: str = "climate_docs"
     qdrant_collection_images: str = "climate_images"

@@ -86,7 +86,7 @@ async def _sse_stream(
 
 
 async def _empty_store_response() -> AsyncGenerator[bytes, None]:
-    msg = "The knowledge base is empty. Run `make ingest` to index documents before querying."
+    msg = "The knowledge base is empty. Get in touch with the administrator."
     yield f"data: {json.dumps({'token': msg})}\n\n".encode()
     yield f"data: {json.dumps({'sources': []})}\n\n".encode()
     yield b"data: [DONE]\n\n"

@@ -1,17 +1,35 @@
-version: "3.9"
-
 services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: climebot-qdrant
+    ports:
+      - "127.0.0.1:6333:6333"   # loopback-only; reachable by host ETL, never public
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: climebot-backend:${VERSION:-latest}
     container_name: climebot-backend
     env_file: ./backend/.env
+    environment:
+      - QDRANT_HOST=qdrant   # reach the Qdrant service over the compose network
     ports:
       - "8000:8000"
     volumes:
       - ./data:/app/data
-      - ./qdrant_storage:/app/qdrant_storage
+    depends_on:
+      qdrant:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
@@ -23,6 +41,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    image: climebot-frontend:${VERSION:-latest}
     container_name: climebot-frontend
     env_file: ./frontend/.env
     ports:
@@ -31,3 +50,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  qdrant_data:

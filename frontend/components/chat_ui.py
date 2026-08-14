@@ -25,7 +25,7 @@ def render_sources(sources: list) -> None:
         with st.expander(label, expanded=False):
             if src.get("type") == "image" and src.get("image_base64"):
                 img_bytes = base64.b64decode(src["image_base64"])
-                st.image(img_bytes, use_column_width=True)
+                st.image(img_bytes, use_container_width=True)
             snippet = src.get("snippet", "").strip()
             if snippet:
                 st.caption(snippet)
