@@ -1,6 +1,6 @@
 # 🌍 ClimeBot
 
-A RAG-powered climate change research assistant combining **FastAPI**, **Streamlit**, **Qdrant**, and **OpenAI GPT-4o**. Supports document chat, semantic image search, and Microsoft Entra ID authentication. Data can be harvested automatically with the included Scrapy pipeline.
+A RAG-powered climate change research assistant combining **FastAPI**, **Streamlit**, **Qdrant**, and **GPUstack** models. Supports document chat, semantic image search, and Microsoft Entra ID authentication. Data can be harvested automatically with the included Scrapy pipeline.
 
 ---
 
@@ -19,7 +19,7 @@ A RAG-powered climate change research assistant combining **FastAPI**, **Streaml
           ┌─────────────▼──────────────┐
           │   FastAPI backend   :8000  │
           │   • /chat  (SSE stream)    │
-          │   • /search               │──► OpenAI API
+          │   • /search               │──► OpenAI compatible API from GPUStack
           │                           │    (embeddings + GPT-4o)
           └─────────────┬──────────────┘
                         │ HTTP :6333
@@ -53,7 +53,7 @@ A RAG-powered climate change research assistant combining **FastAPI**, **Streaml
 | uv | 0.5+ |
 | Docker + Docker Compose | Docker 24 / Compose v2 |
 | GNU Make | 4.x |
-| OpenAI API key | — |
+| OpenAI API key (GPU Stack Key) | — |
 | Microsoft Entra ID app registration | — |
 
 ---
@@ -89,15 +89,7 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
-Edit `backend/.env` and `frontend/.env` and fill in at minimum:
-
-```dotenv
-AZURE_TENANT_ID=<your-tenant-id>
-AZURE_CLIENT_ID=<your-client-id>
-AZURE_CLIENT_SECRET=<your-client-secret>
-AZURE_REDIRECT_URI=http://localhost:8501   # put this in frontend/.env
-
-OPENAI_API_KEY=sk-...
+Edit `backend/.env` and `frontend/.env` to contain the respective variables.
 
 # Qdrant runs as its own service (container). Bare-metal ETL/dev uses localhost;
 # the backend container reaches it as the compose service name "qdrant".
