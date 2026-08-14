@@ -1,11 +1,18 @@
+import asyncio
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 from fastapi import APIRouter, BackgroundTasks, Depends
 from loguru import logger
 
 from app.auth.azure_auth import verify_token
-from app.core.ingestion import ingest_documents
 from app.models.schemas import IngestRequest, IngestResponse
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
+
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 @router.post("", response_model=IngestResponse)
@@ -22,9 +29,28 @@ async def trigger_ingest(
     )
 
 
-def _run_ingest(data_dir: str | None) -> None:
+async def _run_ingest(data_dir: str | None) -> None:
+    """Spawn ingestion as a subprocess so it gets its own Qdrant storage lock."""
+    env = {**os.environ}
+    if data_dir:
+        env["DATA_DIR"] = data_dir
+
+    loop = asyncio.get_event_loop()
     try:
-        docs, imgs = ingest_documents(data_dir)
-        logger.info("Background ingest complete: {} docs, {} images", docs, imgs)
+        # run_in_executor avoids asyncio subprocess incompatibility on Windows
+        result: subprocess.CompletedProcess = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                [sys.executable, "-m", "app.core.ingestion"],
+                cwd=_BACKEND_DIR,
+                env=env,
+                capture_output=True,
+                text=True,
+            ),
+        )
+        if result.returncode != 0:
+            logger.error("Ingest subprocess failed: {}", result.stderr)
+        else:
+            logger.info("Ingest subprocess complete: {}", result.stdout)
     except Exception as exc:
-        logger.error("Background ingest failed: {}", exc)
+        logger.error("Ingest subprocess error: {}", exc)

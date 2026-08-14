@@ -29,9 +29,8 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 16000
     llm_top_p: float = 1.0
 
-    # Qdrant
-    qdrant_host: str = "qdrant"
-    qdrant_port: int = 6333
+    # Qdrant — /app/qdrant_storage in Docker; ./qdrant_storage for local dev
+    qdrant_path: str = "./qdrant_storage"
     qdrant_api_key: str = ""
     qdrant_collection_text: str = "climate_docs"
     qdrant_collection_images: str = "climate_images"

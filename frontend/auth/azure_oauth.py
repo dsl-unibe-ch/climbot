@@ -67,12 +67,13 @@ class AzureAuth:
     def _render_login_page(self) -> None:
         st.title("🌍 ClimeBot")
         st.subheader("Climate Change Research Assistant")
-        st.info("Sign in with your Microsoft account to continue.")
+        st.info("Sign in with your UniBE Campus Account to continue.")
 
         auth_url = _msal_app().get_authorization_request_url(
             scopes=_SCOPES,
             redirect_uri=_REDIRECT_URI,
             state=self._get_state(),
+            response_type="code",
         )
         # target="_self" keeps the redirect in the same tab so the callback
         # arrives back in this Streamlit session rather than a new tab
@@ -109,6 +110,7 @@ class AzureAuth:
             logger.info("User authenticated: {}", result.get("id_token_claims", {}).get("name"))
             st.rerun()
         else:
+            st.query_params.clear()
             st.error(f"Login failed: {result.get('error_description', 'Unknown error')}")
             logger.warning("Auth failure: {}", result)
 

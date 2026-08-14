@@ -24,7 +24,7 @@ A RAG-powered climate change research assistant combining **FastAPI**, **Streaml
           └─────────────┬──────────────┘
                         │
           ┌─────────────▼──────────────┐
-          │   Qdrant vector DB  :6333  │
+          │   Embedded Qdrant storage  │
           │   climate_docs             │
           │   climate_images           │
           └────────────────────────────┘
@@ -84,24 +84,25 @@ You need **one** app registration that serves both the frontend (OAuth client) a
 ## 2. Environment Setup
 
 ```bash
-cp .env.example .env
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
 ```
 
-Edit `.env` and fill in at minimum:
+Edit `backend/.env` and `frontend/.env` and fill in at minimum:
 
 ```dotenv
 AZURE_TENANT_ID=<your-tenant-id>
 AZURE_CLIENT_ID=<your-client-id>
 AZURE_CLIENT_SECRET=<your-client-secret>
-AZURE_REDIRECT_URI=http://localhost:8501   # or your VM URL
+AZURE_REDIRECT_URI=http://localhost:8501   # put this in frontend/.env
 
 OPENAI_API_KEY=sk-...
 
-# For local dev change QDRANT_HOST to "localhost"
-QDRANT_HOST=qdrant
+# Embedded Qdrant storage used by the backend container
+QDRANT_PATH=/app/qdrant_storage
 
-# For local dev change BACKEND_URL to "http://localhost:8000"
-BACKEND_URL=http://backend:8000
+# Put backend settings in backend/.env and frontend settings in frontend/.env.
+BACKEND_URL=http://backend:8000   # put this in frontend/.env
 ```
 
 ---
@@ -115,58 +116,51 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 ### Create environment and install dependencies
-
+The following command installs the dependencies for scraper, frontend and backend for the developer as well as the pre-commit hooks.
 ```bash
 make install-dev
 ```
 
-### Start Qdrant (Docker required for local vector DB)
+Qdrant runs in the backend process using local storage. The backend container
+persists that storage in `./qdrant_storage`; no Qdrant container is required.
+For bare-metal development, set `QDRANT_PATH=./qdrant_storage` in
+`backend/.env` and `BACKEND_URL=http://localhost:8000` in `frontend/.env`.
+
+### ETL — scrape and index data
+
+To run a full refresh (scrape new data from the web and rebuild the index from scratch):
 
 ```bash
-docker run -d -p 6333:6333 -p 6334:6334 \
-  -v qdrant_data:/qdrant/storage \
-  qdrant/qdrant:v1.12.0
+make run-etl
 ```
 
-> Set `QDRANT_HOST=localhost` in `.env` when running backend outside Docker.
-> Set `BACKEND_URL=http://localhost:8000` in `.env` when running frontend outside Docker.
+This runs `make scrape` followed by `make ingest` in sequence.
 
-### Scrape data (first run)
+#### Folder layout
 
-The scraper runs **outside Docker** and populates `data/`:
+```
+data/
+  admin_docs/    # drop your own PDFs / images / .txt / .md files here
+  scraped_docs/  # scraper writes here; admin_docs are merged in before indexing
+```
+
+#### Individual ETL commands
 
 ```bash
-make scrape   # crawls configured sites, saves PDFs + images to data/
+make scrape           # crawl configured sites, download to data/scraped_docs/
+make sync-admin-docs  # copy admin_docs/ into scraped_docs/
+make ingest           # sync admin docs, DROP collections, and reindex from scratch
 ```
 
-Or drop your own PDFs / images / Markdown files directly into `data/`.
+> `make ingest` always wipes the Qdrant collections and rebuilds from scratch — there is no separate "reingest". This guarantees the index exactly matches what is on disk and prevents stale entries.
 
-### Ingest into Qdrant
+The ingestion pipeline:
+1. Extracts text from PDFs/DOCX and splits into chunks
+2. Extracts images from PDFs, describes each with the vision model, embeds the description
+3. Embeds all text chunks
+4. Indexes everything into Qdrant (`climate_docs` + `climate_images` collections)
 
-#### First time ingestion
-```bash
-make ingest   # parse → chunk → embed → index
-```
-
-The pipeline will:
-1. Extract text from PDFs/DOCX and split into chunks
-2. Extract images from PDFs, describe each with the vision model, embed the description
-3. Embed all text chunks
-4. Index everything into Qdrant (`climate_docs` + `climate_images` collections)
-
-#### Refresh the index
-
-To add new documents without losing existing data (idempotent — same files produce the same point IDs):
-
-```bash
-make ingest
-```
-
-To wipe all indexed data and rebuild from scratch (e.g. after changing the embedding model or chunk size):
-
-```bash
-make reingest
-```
+You can also skip scraping and drop files directly into `data/admin_docs/`, then run `make ingest`.
 
 ### Run the backend
 
@@ -188,7 +182,7 @@ make frontend  # Streamlit on http://localhost:8501
 # Build images
 make build
 
-# Start all services (Qdrant + backend + frontend)
+# Start backend and frontend (Qdrant runs inside the backend container)
 make up
 
 # Watch logs
@@ -201,7 +195,6 @@ make down
 Services:
 - Streamlit UI → `http://localhost:8501`
 - FastAPI docs → `http://localhost:8000/docs`
-- Qdrant dashboard → `http://localhost:6333/dashboard`
 
 ---
 
@@ -215,13 +208,15 @@ rsync -avz --exclude '.env' --exclude 'data/' \
   ./ user@<vm-ip>:/opt/climebot/
 ```
 
-### 5b. Set up .env on VM
+### 5b. Set up service environment files on VM
 
 ```bash
 ssh user@<vm-ip>
 cd /opt/climebot
-cp .env.example .env
-nano .env   # Fill in production values
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+nano backend/.env    # Fill in backend secrets and production values
+nano frontend/.env   # Fill in frontend secrets and production values
 ```
 
 Key differences for production `.env`:
@@ -229,30 +224,25 @@ Key differences for production `.env`:
 ```dotenv
 AZURE_REDIRECT_URI=https://climebot.example.com
 BACKEND_CORS_ORIGINS=https://climebot.example.com
-BACKEND_URL=http://backend:8000  # internal Docker network
-QDRANT_HOST=qdrant
+BACKEND_URL=http://backend:8000  # put this in frontend/.env
+QDRANT_PATH=/app/qdrant_storage  # put this in backend/.env
 ```
 
-### 5c. Configure nginx SSL
-
-1. Place your TLS certificate and key in `nginx/ssl/`:
-   - `nginx/ssl/fullchain.pem`
-   - `nginx/ssl/privkey.pem`
-2. Uncomment the HTTPS server block in [nginx/nginx.conf](nginx/nginx.conf) and set your domain name.
-
-### 5d. Start production stack
+### 5c. Start production stack
 
 ```bash
 make up-prod
 ```
 
 This uses the `docker-compose.prod.yml` overlay which:
-- Removes direct port exposure for backend/frontend/qdrant
-- Adds the nginx reverse proxy on ports 80 and 443
+- Removes direct port exposure for backend/frontend
+- Starts the nginx reverse proxy bound to `127.0.0.1:8080` only
 
-### 5e. Register the VM’s URL as a Redirect URI in Entra ID
+TLS is terminated by the VM's host-level reverse proxy, which forwards traffic to `127.0.0.1:8080`. The Docker containers have no direct public exposure.
 
-In the Azure Portal, add `https://climebot.example.com` as an additional Redirect URI for your app registration.
+### 5d. Register the VM's URL as a Redirect URI in Entra ID
+
+In the Azure Portal, add `https://climebot.example.com` as an additional Redirect URI for your app registration (required for the OAuth login flow).
 
 ---
 
@@ -279,9 +269,10 @@ make install-dev   Install deps + pre-commit hooks
 make backend       Run FastAPI dev server (hot-reload)
 make frontend      Run Streamlit dev server
 make token         Acquire Entra ID token via device-code flow
-make scrape        Run Scrapy spider
-make ingest        Ingest data/ into Qdrant (idempotent)
-make reingest      Drop collections and ingest from scratch
+make run-etl       Scrape then wipe and reindex from scratch
+make scrape        Run Scrapy spider (output → data/scraped_docs/)
+make sync-admin-docs  Copy admin_docs/ into scraped_docs/
+make ingest        Sync admin docs, drop collections, reindex from scratch
 make build         Build Docker images
 make up            Start all services (dev)
 make up-prod       Start with nginx overlay (production)
@@ -377,8 +368,7 @@ http://localhost:8000/docs
 | `LLM_TEMPERATURE` | `0.3` | Sampling temperature |
 | `LLM_MAX_TOKENS` | `16000` | Max tokens per response |
 | `LLM_TOP_P` | `1.0` | Nucleus sampling |
-| `QDRANT_HOST` | `qdrant` | `qdrant` (Docker) or `localhost` (local dev) |
-| `QDRANT_PORT` | `6333` | Qdrant gRPC/REST port |
+| `QDRANT_PATH` | `/app/qdrant_storage` | Local Qdrant storage path inside the backend |
 | `QDRANT_API_KEY` | _(empty)_ | Required for Qdrant Cloud |
 | `BACKEND_HOST` | `0.0.0.0` | Uvicorn bind address — **not a URL**; keep as `0.0.0.0` |
 | `BACKEND_PORT` | `8000` | Uvicorn listen port |
@@ -449,4 +439,57 @@ ClimeBot/
 ├── .gitignore
 ├── .pre-commit-config.yaml
 └── README.md
+```
+
+---
+
+## 11. Contributing to Github Repository
+
+Please follow the steps and guidelines prescribed below while contributing to the github repository.
+
+**Never commit directly to `main`.** All changes must go through a pull request.
+
+### Workflow
+
+```bash
+# 1. Create a feature branch from main
+git checkout main
+git pull origin main
+git checkout -b feat/your-feature-name
+
+# 2. Make your changes, then lint
+make lint
+
+# 3. Fix any reported issues, then format
+make format
+
+# 4. Re-run lint to confirm clean
+make lint
+
+# 5. Commit
+# In the absence of a Jira board (currently the case)
+git add .
+git commit -m "feat: describe your change"
+# 6. Push and open a PR
+git push origin feat/your-feature-name
+```
+
+Then open a Pull Request on GitHub targeting `main`. Request a review — do not merge your own PR.
+
+### Branch naming
+
+| Prefix | Use for |
+|--------|---------|
+| `feat/` | New features, tooling, config |
+| `fix/` | Bug fixes |
+| `docs/` | Documentation only |
+
+### Pre-commit hooks
+
+`make install-dev` wires up pre-commit hooks that run lint and format checks automatically on every `git commit`. If a hook fails, the commit is blocked — fix the reported issues and try again.
+
+To run all hooks manually without committing:
+
+```bash
+make precommit
 ```

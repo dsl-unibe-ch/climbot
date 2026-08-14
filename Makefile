@@ -1,5 +1,5 @@
 .PHONY: help venv install install-dev check-env \
-        backend frontend scrape ingest reingest token list-models \
+        backend frontend scrape sync-admin-docs ingest run-etl token list-models \
         build up up-prod down logs clean \
         precommit lint format
 
@@ -8,8 +8,7 @@ COMPOSE := docker compose
 
 # ─────────────────────────────────────────────────────────────────────────────
 help: ## Show available commands
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-	  awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-22s\033[0m %s\n", $$1, $$2}'
+	@python -c "import re; [print(f'{m.group(1):22} {m.group(2)}') for line in open('Makefile', encoding='utf-8') for m in [re.match(r'^([a-zA-Z_-]+):.*?## (.*)$$', line)] if m]"
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -27,8 +26,9 @@ install-dev: install ## Install dev tools and set up pre-commit
 	@echo ""
 	@echo "Tip: run 'detect-secrets scan > .secrets.baseline' if you add detect-secrets to pre-commit"
 
-check-env: ## Verify .env exists (required before most commands)
-	@test -f .env || (echo "\033[31mERROR: .env not found.\033[0m Copy .env.example → .env and fill in your values." && exit 1)
+check-env: ## Verify service env files exist (required before most commands)
+	@test -f backend/.env || (echo "ERROR: backend/.env not found. Copy backend/.env.example to backend/.env and fill in your values." && exit 1)
+	@test -f frontend/.env || (echo "ERROR: frontend/.env not found. Copy frontend/.env.example to frontend/.env and fill in your values." && exit 1)
 
 # ── Local development ─────────────────────────────────────────────────────────
 
@@ -37,19 +37,28 @@ token: check-env ## Acquire an Entra ID access token via device-code flow (print
 
 list-models: check-env ## List all model IDs available on the configured endpoint
 	$(UV) run python -c "\
-from dotenv import load_dotenv; load_dotenv('.env'); \
+from dotenv import load_dotenv; load_dotenv('backend/.env'); \
 import os; from openai import OpenAI; \
 c = OpenAI(api_key=os.environ['OPENAI_API_KEY'], base_url=os.environ.get('OPENAI_BASE_URL') or None); \
 [print(m.id) for m in c.models.list().data]"
 
-scrape: check-env ## Run the Scrapy climate spider (downloads to data/)
-	cd scraper && SCRAPY_OUTPUT_DIR=../data $(UV) run scrapy crawl climate_spider
+scrape: check-env ## Run the Scrapy climate spider (downloads to data/scraped_docs/)
+	cd scraper && SCRAPY_OUTPUT_DIR=../data/scraped_docs $(UV) run scrapy crawl climate_spider
 
-ingest: check-env ## Ingest documents from data/ into Qdrant (idempotent)
-	cd backend && DATA_DIR=../data $(UV) run python -m app.core.ingestion
+sync-admin-docs: ## Copy admin_docs/ into scraped_docs/ (merges without deleting scraped content)
+	@$(UV) run python -c "\
+import shutil, pathlib; \
+src=pathlib.Path('data/admin_docs'); dst=pathlib.Path('data/scraped_docs'); \
+[dst.joinpath(s.relative_to(src)).parent.mkdir(parents=True,exist_ok=True) or \
+ shutil.copy2(s, dst/s.relative_to(src)) \
+ for s in src.rglob('*') if s.is_file() and not s.name.startswith('.')]"
 
-reingest: check-env ## Drop Qdrant collections and ingest from scratch
-	cd backend && DATA_DIR=../data $(UV) run python -m app.core.ingestion --fresh
+ingest: check-env sync-admin-docs ## Drop Qdrant collections and index data/scraped_docs/ from scratch
+	cd backend && DATA_DIR=../data/scraped_docs $(UV) run python -m app.core.ingestion --fresh
+
+run-etl: check-env ## Scrape then wipe and reindex from scratch
+	$(MAKE) scrape
+	$(MAKE) ingest
 
 backend: check-env ## Run FastAPI dev server (hot-reload) on :8000
 	cd backend && $(UV) run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000

@@ -12,7 +12,7 @@ from pathlib import Path
 import msal
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+load_dotenv(Path(__file__).resolve().parents[1] / "frontend/.env")
 
 _CLIENT_ID = os.environ["AZURE_CLIENT_ID"]
 _TENANT_ID = os.environ["AZURE_TENANT_ID"]

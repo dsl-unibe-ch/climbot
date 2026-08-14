@@ -7,7 +7,7 @@ from pathlib import Path
 from scrapy.http import Request
 from scrapy.pipelines.files import FilesPipeline
 
-from climebot_scraper.items import ClimatePageItem
+from climebot_scraper.items import ClimateDocItem, ClimatePageItem
 
 
 class FileDownloadPipeline(FilesPipeline):
@@ -26,7 +26,9 @@ class FileDownloadPipeline(FilesPipeline):
         return f"{safe_ext}/{url_hash}.{safe_ext}"
 
     def item_completed(self, results, item, info):
-        item["files"] = [r for ok, r in results if ok]
+        # ClimatePageItem has no `files` field — skip assignment to avoid dropping it
+        if isinstance(item, ClimateDocItem):
+            item["files"] = [r for ok, r in results if ok]
         return item
 
 
