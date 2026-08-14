@@ -1,10 +1,14 @@
 .PHONY: help venv install install-dev check-env \
-        backend frontend scrape sync-admin-docs ingest run-etl token list-models \
+        backend frontend scrape sync-admin-docs ingest run-etl qdrant-up token list-models \
         build up up-prod down logs clean \
         precommit lint format
 
 UV      := uv
 COMPOSE := docker compose
+
+# Image tag derived from pyproject.toml; consumed by docker-compose via ${VERSION}
+VERSION := $(shell python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+export VERSION
 
 # ─────────────────────────────────────────────────────────────────────────────
 help: ## Show available commands
@@ -45,6 +49,12 @@ c = OpenAI(api_key=os.environ['OPENAI_API_KEY'], base_url=os.environ.get('OPENAI
 scrape: check-env ## Run the Scrapy climate spider (downloads to data/scraped_docs/)
 	cd scraper && SCRAPY_OUTPUT_DIR=../data/scraped_docs $(UV) run scrapy crawl climate_spider
 
+qdrant-up: check-env ## Start the Qdrant vector DB service and wait until it accepts connections
+	$(COMPOSE) up -d qdrant
+	@echo "Waiting for Qdrant on localhost:6333 ..."
+	@until $(UV) run python -c "import socket;socket.create_connection(('localhost',6333),1).close()" 2>/dev/null; do sleep 1; done
+	@echo "Qdrant is ready."
+
 sync-admin-docs: ## Copy admin_docs/ into scraped_docs/ (merges without deleting scraped content)
 	@$(UV) run python -c "\
 import shutil, pathlib; \
@@ -53,14 +63,14 @@ src=pathlib.Path('data/admin_docs'); dst=pathlib.Path('data/scraped_docs'); \
  shutil.copy2(s, dst/s.relative_to(src)) \
  for s in src.rglob('*') if s.is_file() and not s.name.startswith('.')]"
 
-ingest: check-env sync-admin-docs ## Drop Qdrant collections and index data/scraped_docs/ from scratch
+ingest: check-env qdrant-up sync-admin-docs ## Drop Qdrant collections and index data/scraped_docs/ from scratch
 	cd backend && DATA_DIR=../data/scraped_docs $(UV) run python -m app.core.ingestion --fresh
 
-run-etl: check-env ## Scrape then wipe and reindex from scratch
+run-etl: check-env qdrant-up ## Start Qdrant, scrape, then wipe and reindex from scratch
 	$(MAKE) scrape
 	$(MAKE) ingest
 
-backend: check-env ## Run FastAPI dev server (hot-reload) on :8000
+backend: check-env qdrant-up ## Run FastAPI dev server (hot-reload) on :8000
 	cd backend && $(UV) run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 frontend: check-env ## Run Streamlit dev server on :8501

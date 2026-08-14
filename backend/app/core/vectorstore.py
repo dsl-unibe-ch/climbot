@@ -13,7 +13,8 @@ def _sync() -> QdrantClient:
     global _sync_client
     if _sync_client is None:
         _sync_client = QdrantClient(
-            path=settings.qdrant_path,
+            host=settings.qdrant_host,
+            port=settings.qdrant_port,
             api_key=settings.qdrant_api_key or None,
         )
     return _sync_client
@@ -23,7 +24,8 @@ def _async() -> AsyncQdrantClient:
     global _async_client
     if _async_client is None:
         _async_client = AsyncQdrantClient(
-            path=settings.qdrant_path,
+            host=settings.qdrant_host,
+            port=settings.qdrant_port,
             api_key=settings.qdrant_api_key or None,
         )
     return _async_client
