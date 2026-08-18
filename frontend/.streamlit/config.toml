@@ -10,3 +10,11 @@ backgroundColor        = "#FFFFFF"
 secondaryBackgroundColor = "#F0F4F0"
 textColor              = "#1A1A1A"
 font                   = "sans serif"
+
+[client]
+showErrorDetails = "none"
+
+[browser]
+gatherUsageStats = false
+serverAddress = "climebot.dsl.unibe.ch"
+serverPort = 443

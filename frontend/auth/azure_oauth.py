@@ -20,6 +20,11 @@ _REDIRECT_URI = os.environ.get("AZURE_REDIRECT_URI", "http://localhost:8501")
 # Falls back to a sensible default; override via AZURE_API_SCOPE in .env
 _SCOPES = [os.environ.get("AZURE_API_SCOPE", f"api://{_CLIENT_ID}/ClimeBot.Access")]
 
+# Comma-separated list of allowed UPNs/emails; empty means allow all authenticated users
+_ALLOWED_USERS: set[str] = {
+    u.strip().lower() for u in os.environ.get("ALLOWED_USERS", "").split(",") if u.strip()
+}
+
 
 def _msal_app() -> msal.ConfidentialClientApplication:
     return msal.ConfidentialClientApplication(
@@ -54,6 +59,18 @@ class AzureAuth:
 
         if "code" in params:
             self._complete_callback(params["code"], params.get("state", ""))
+            return
+
+        if st.session_state.get("_access_denied"):
+            upn = st.session_state.get("_access_denied_user", "your account")
+            st.error(
+                f"Access denied for **{upn}**.  "
+                "Please contact [Sukanya Nath](mailto:sukanya.nath@unibe.ch) to request access."
+            )
+            if st.button("← Back to login"):
+                st.session_state.pop("_access_denied", None)
+                st.session_state.pop("_access_denied_user", None)
+                st.rerun()
             return
 
         if "error" in params:
@@ -103,11 +120,20 @@ class AzureAuth:
         )
 
         if "access_token" in result:
+            claims = result.get("id_token_claims", {})
+            upn = (claims.get("preferred_username") or "").lower()
+            if _ALLOWED_USERS and upn not in _ALLOWED_USERS:
+                st.query_params.clear()
+                st.session_state["_access_denied"] = True
+                st.session_state["_access_denied_user"] = upn
+                logger.warning("Access denied for unlisted user: {}", upn)
+                st.rerun()
+                return
             st.session_state["_token"] = result["access_token"]
             st.session_state["_token_expiry"] = time.time() + result.get("expires_in", 3600)
-            st.session_state["_user"] = result.get("id_token_claims", {})
+            st.session_state["_user"] = claims
             st.query_params.clear()
-            logger.info("User authenticated: {}", result.get("id_token_claims", {}).get("name"))
+            logger.info("User authenticated: {}", claims.get("name"))
             st.rerun()
         else:
             st.query_params.clear()

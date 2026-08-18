@@ -1,13 +1,15 @@
 .PHONY: help venv install install-dev check-env \
         backend frontend scrape sync-admin-docs ingest run-etl qdrant-up token list-models \
-        build up up-prod down logs clean \
+        build deploy deploy-data ingest-remote up up-prod down logs clean \
         precommit lint format
 
 UV      := uv
 COMPOSE := docker compose
+ENV     ?= dev  # override with ENV=prod for production (e.g. make ingest ENV=prod)
+VM_HOST ?= $(shell grep '^VM_HOST=' .env 2>/dev/null | cut -d'=' -f2-)
 
 # Image tag derived from pyproject.toml; consumed by docker-compose via ${VERSION}
-VERSION := $(shell python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+VERSION := $(shell $(UV) run python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])" 2>/dev/null || python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
 export VERSION
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -31,8 +33,8 @@ install-dev: install ## Install dev tools and set up pre-commit
 	@echo "Tip: run 'detect-secrets scan > .secrets.baseline' if you add detect-secrets to pre-commit"
 
 check-env: ## Verify service env files exist (required before most commands)
-	@test -f backend/.env || (echo "ERROR: backend/.env not found. Copy backend/.env.example to backend/.env and fill in your values." && exit 1)
-	@test -f frontend/.env || (echo "ERROR: frontend/.env not found. Copy frontend/.env.example to frontend/.env and fill in your values." && exit 1)
+	@test -f backend/.env.$(ENV) || (echo "ERROR: backend/.env.$(ENV) not found. Copy backend/.env.$(ENV).example to backend/.env.$(ENV) and fill in your values." && exit 1)
+	@test -f frontend/.env.$(ENV) || (echo "ERROR: frontend/.env.$(ENV) not found. Copy frontend/.env.$(ENV).example to frontend/.env.$(ENV) and fill in your values." && exit 1)
 
 # ── Local development ─────────────────────────────────────────────────────────
 
@@ -41,7 +43,7 @@ token: check-env ## Acquire an Entra ID access token via device-code flow (print
 
 list-models: check-env ## List all model IDs available on the configured endpoint
 	$(UV) run python -c "\
-from dotenv import load_dotenv; load_dotenv('backend/.env'); \
+from dotenv import load_dotenv; load_dotenv('backend/.env.$(ENV)'); \
 import os; from openai import OpenAI; \
 c = OpenAI(api_key=os.environ['OPENAI_API_KEY'], base_url=os.environ.get('OPENAI_BASE_URL') or None); \
 [print(m.id) for m in c.models.list().data]"
@@ -81,8 +83,34 @@ frontend: check-env ## Run Streamlit dev server on :8501
 build: ## Build all Docker images (no cache)
 	$(COMPOSE) build --no-cache
 
+deploy: build ## Build images locally, ship everything to VM, and start the production stack
+	@test -n "$(VM_HOST)" || (echo "ERROR: VM_HOST not set. Add VM_HOST=user@host to .env" && exit 1)
+	@echo "==> Creating remote directories..."
+	ssh $(VM_HOST) "mkdir -p ~/climbot/backend ~/climbot/frontend ~/climbot/nginx"
+	@echo "==> Copying compose files, nginx config, and env files..."
+	scp docker-compose.yml docker-compose.prod.yml $(VM_HOST):~/climbot/
+	scp nginx/nginx.conf $(VM_HOST):~/climbot/nginx/nginx.conf
+	scp backend/.env.prod $(VM_HOST):~/climbot/backend/.env.prod
+	scp frontend/.env.prod $(VM_HOST):~/climbot/frontend/.env.prod
+	@echo "==> Shipping Docker images (this may take a while)..."
+	docker save climebot-backend:$(or $(VERSION),latest) climebot-frontend:$(or $(VERSION),latest) \
+	  | gzip \
+	  | ssh $(VM_HOST) "docker load"
+	@echo "==> Starting production stack on VM..."
+	ssh $(VM_HOST) "cd ~/climbot && VERSION=$(or $(VERSION),latest) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d"
+	@echo "Deploy complete. Stack is running on $(VM_HOST)."
+
+deploy-data: ## Copy data/admin_docs/ into the running backend container on the VM
+	@test -n "$(VM_HOST)" || (echo "ERROR: VM_HOST not set. Add VM_HOST=user@host to .env" && exit 1)
+	scp -r data/admin_docs $(VM_HOST):~/climbot_admin_docs_tmp
+	ssh $(VM_HOST) "cd ~/climbot && docker compose -f docker-compose.yml -f docker-compose.prod.yml cp ~/climbot_admin_docs_tmp/. backend:/app/data/admin_docs/ && rm -rf ~/climbot_admin_docs_tmp"
+
+ingest-remote: ## Run ingestion inside the backend container on the VM
+	@test -n "$(VM_HOST)" || (echo "ERROR: VM_HOST not set. Add VM_HOST=user@host to .env" && exit 1)
+	ssh $(VM_HOST) "cd ~/climbot && docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m app.core.ingestion --fresh"
+
 up: check-env ## Start all services in detached mode (dev)
-	$(COMPOSE) up -d
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 up-prod: check-env ## Start all services with nginx overlay (production)
 	$(COMPOSE) -f docker-compose.yml -f docker-compose.prod.yml up -d

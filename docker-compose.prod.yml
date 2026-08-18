@@ -6,12 +6,14 @@ services:
     restart: always   # loopback port (127.0.0.1:6333) is inherited from the base file
 
   backend:
+    env_file: ./backend/.env.prod
     ports: []
     expose:
       - "8000"
     restart: always
 
   frontend:
+    env_file: ./frontend/.env.prod
     ports: []
     expose:
       - "8501"
@@ -19,7 +21,7 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
-    container_name: climebot-nginx
+    container_name: climebot-nginx-${VERSION:-latest}
     ports:
       - "127.0.0.1:8080:80"   # loopback-only; VM's reverse proxy forwards here
     volumes:

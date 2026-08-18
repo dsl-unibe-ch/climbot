@@ -21,8 +21,10 @@ backend/app/core/__pycache__/
 .env
 .env.local
 .env.*.local
-.env.backend
-.env.frontend
+backend/.env.dev
+backend/.env.prod
+frontend/.env.dev
+frontend/.env.prod
 .env.azure
 !.env.example
 .token
@@ -61,3 +63,5 @@ Thumbs.db
 scraper/.scrapy/
 scraper/**/*.csv
 scraper/**/*.jl
+
+local_commands.md
