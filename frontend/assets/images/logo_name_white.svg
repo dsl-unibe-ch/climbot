@@ -86,4 +86,15 @@
             </g>
         </g>
     </g>
+
+    <!-- Bot mark added at the centre of the original CLIM+ striped plus. -->
+    <g id="bot-mark" aria-label="bot icon">
+        <line x1="907" y1="166" x2="907" y2="176" style="stroke:white;stroke-width:6;stroke-linecap:round;"/>
+        <circle cx="907" cy="159" r="9" style="fill:white;"/>
+        <circle cx="907" cy="159" r="4" style="fill:rgb(29,98,175);"/>
+        <rect x="865" y="175" width="84" height="64" rx="18" ry="18" style="fill:white;"/>
+        <circle cx="890" cy="202" r="6.5" style="fill:rgb(29,98,175);"/>
+        <circle cx="924" cy="202" r="6.5" style="fill:rgb(29,98,175);"/>
+        <path d="M895,218 C901,225 913,225 919,218" style="fill:none;stroke:rgb(29,98,175);stroke-width:5;stroke-linecap:round;"/>
+    </g>
 </svg>

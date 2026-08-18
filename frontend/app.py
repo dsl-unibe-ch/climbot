@@ -1,13 +1,29 @@
+from pathlib import Path
+
 import streamlit as st
 from auth.azure_oauth import AzureAuth
 from components.chat_ui import render_chat_history, render_sources, stream_from_backend
 from components.image_viewer import render_image_results
 
+_LOGO = Path(__file__).parent / "assets" / "images" / "logo_name_white.svg"
+
 st.set_page_config(
-    page_title="ClimeBot",
+    page_title="NCCR CLIM+ Bot",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded",
+)
+
+# Fixed footer injected once at module level
+st.markdown(
+    "<style>"
+    "#dsl-footer{position:fixed;bottom:0.75rem;right:1rem;font-size:0.75rem;"
+    "color:#4a6a8a;z-index:9999;pointer-events:auto;}"
+    "#dsl-footer a{color:#4a6a8a;text-decoration:none;}"
+    "#dsl-footer a:hover{color:#8ba3c0;text-decoration:underline;}"
+    "</style>"
+    '<div id="dsl-footer">Powered by <a href="https://www.dsl.unibe.ch/" target="_blank">DSL</a></div>',
+    unsafe_allow_html=True,
 )
 
 
@@ -22,7 +38,7 @@ def main() -> None:
     display_name = user.get("name") or user.get("preferred_username", "User")
 
     with st.sidebar:
-        st.title("🌍 ClimeBot")
+        st.image(str(_LOGO), use_container_width=True)
         st.caption(f"Signed in as **{display_name}**")
         st.divider()
 

@@ -62,15 +62,19 @@ class AzureAuth:
             return
 
         if st.session_state.get("_access_denied"):
-            upn = st.session_state.get("_access_denied_user", "your account")
-            st.error(
-                f"Access denied for **{upn}**.  "
-                "Please contact [Sukanya Nath](mailto:sukanya.nath@unibe.ch) to request access."
-            )
-            if st.button("← Back to login"):
-                st.session_state.pop("_access_denied", None)
-                st.session_state.pop("_access_denied_user", None)
-                st.rerun()
+            _logo = Path(__file__).parents[1] / "assets" / "images" / "logo_name_white.svg"
+            _, col, _ = st.columns([1, 2, 1])
+            with col:
+                st.image(str(_logo), use_container_width=True)
+                upn = st.session_state.get("_access_denied_user", "your account")
+                st.error(
+                    f"Access denied for **{upn}**.  "
+                    "Please contact [Sukanya Nath](mailto:sukanya.nath@unibe.ch) to request access."
+                )
+                if st.button("← Back to login"):
+                    st.session_state.pop("_access_denied", None)
+                    st.session_state.pop("_access_denied_user", None)
+                    st.rerun()
             return
 
         if "error" in params:
@@ -82,26 +86,37 @@ class AzureAuth:
     # ── Private helpers ─────────────────────────────────────────────────
 
     def _render_login_page(self) -> None:
-        st.title("🌍 ClimeBot")
-        st.subheader("Climate Change Research Assistant")
-        st.info("Sign in with your UniBE Campus Account to continue.")
-
         auth_url = _msal_app().get_authorization_request_url(
             scopes=_SCOPES,
             redirect_uri=_REDIRECT_URI,
             state=self._get_state(),
             response_type="code",
         )
-        # target="_self" keeps the redirect in the same tab so the callback
-        # arrives back in this Streamlit session rather than a new tab
-        st.markdown(
-            f'<a href="{auth_url}" target="_self" '
-            'style="display:block;text-align:center;padding:0.75rem 1rem;'
-            "background:#0078d4;color:white;border-radius:0.5rem;"
-            'text-decoration:none;font-weight:600;font-size:1rem;">'
-            "\U0001f510\u00a0\u00a0Sign in with Microsoft</a>",
-            unsafe_allow_html=True,
-        )
+        _logo = Path(__file__).parents[1] / "assets" / "images" / "logo_name_white.svg"
+        _, col, _ = st.columns([1, 2, 1])
+        with col:
+            st.image(str(_logo), use_container_width=True)
+            st.markdown(
+                "<p style='text-align:center;color:#8ba3c0;margin-top:0.25rem;'>"
+                "Climate Change Research Assistant</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("<br>", unsafe_allow_html=True)
+            # target="_self" keeps the redirect in the same tab so the callback
+            # arrives back in this Streamlit session rather than a new tab
+            st.markdown(
+                f'<a href="{auth_url}" target="_self" '
+                'style="display:block;text-align:center;padding:0.75rem 1rem;'
+                "background:#0078d4;color:white;border-radius:0.5rem;"
+                'text-decoration:none;font-weight:600;font-size:1rem;">'
+                "\U0001f510\u00a0\u00a0Sign in with Microsoft</a>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                "<p style='text-align:center;color:#4a6a8a;font-size:0.8rem;margin-top:1rem;'>"
+                "Access restricted to authorized NCCR CLIM+ members</p>",
+                unsafe_allow_html=True,
+            )
 
     def _complete_callback(self, code: str, state: str) -> None:
         # _oauth_state is set in the same Streamlit session that built the login URL,
