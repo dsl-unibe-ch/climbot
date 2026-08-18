@@ -91,6 +91,7 @@ cp frontend/.env.example frontend/.env
 
 Edit `backend/.env` and `frontend/.env` to contain the respective variables.
 
+```bash
 # Qdrant runs as its own service (container). Bare-metal ETL/dev uses localhost;
 # the backend container reaches it as the compose service name "qdrant".
 QDRANT_HOST=localhost
