@@ -1,7 +1,7 @@
 services:
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: climebot-qdrant
+    container_name: climebot-qdrant-${VERSION:-latest}
     ports:
       - "127.0.0.1:6333:6333"   # loopback-only; reachable by host ETL, never public
     volumes:
@@ -18,9 +18,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
     image: climebot-backend:${VERSION:-latest}
-    container_name: climebot-backend
-    env_file: ./backend/.env
+    container_name: climebot-backend-${VERSION:-latest}
     environment:
       - QDRANT_HOST=qdrant   # reach the Qdrant service over the compose network
     ports:
@@ -41,9 +42,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
     image: climebot-frontend:${VERSION:-latest}
-    container_name: climebot-frontend
-    env_file: ./frontend/.env
+    container_name: climebot-frontend-${VERSION:-latest}
     ports:
       - "8501:8501"
     depends_on:

@@ -84,21 +84,42 @@ You need **one** app registration that serves both the frontend (OAuth client) a
 
 ## 2. Environment Setup
 
+There are two env files per service — one for local development and one for production:
+
+| File | Purpose |
+|------|---------|
+| `backend/.env.dev` / `frontend/.env.dev` | Local development — edit these on your machine |
+| `backend/.env.prod` / `frontend/.env.prod` | Production VM — edit these, then copy to the VM |
+
 ```bash
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
+# Local dev
+cp backend/.env.dev.example backend/.env.dev
+cp frontend/.env.dev.example frontend/.env.dev
+
+# Production
+cp backend/.env.prod.example backend/.env.prod
+cp frontend/.env.prod.example frontend/.env.prod
 ```
 
-Edit `backend/.env` and `frontend/.env` to contain the respective variables.
+Key differences between dev and prod:
 
 ```bash
-# Qdrant runs as its own service (container). Bare-metal ETL/dev uses localhost;
-# the backend container reaches it as the compose service name "qdrant".
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
+# backend/.env.dev
+QDRANT_PATH=./qdrant_storage   # local file-based Qdrant
+BACKEND_CORS_ORIGINS=http://localhost:8501
+AZURE_REDIRECT_URI=http://localhost:8501
 
-# Put backend settings in backend/.env and frontend settings in frontend/.env.
-BACKEND_URL=http://backend:8000   # put this in frontend/.env
+# backend/.env.prod
+QDRANT_HOST=qdrant             # Docker service name
+QDRANT_PORT=6333
+BACKEND_CORS_ORIGINS=https://climebot.dsl.unibe.ch
+AZURE_REDIRECT_URI=https://climebot.dsl.unibe.ch
+
+# frontend/.env.dev
+BACKEND_URL=http://localhost:8000
+
+# frontend/.env.prod
+BACKEND_URL=http://backend:8000   # Docker service name
 ```
 
 ---
@@ -121,8 +142,8 @@ Qdrant runs as a **separate service** (a `qdrant/qdrant` container) with its dat
 a Docker named volume — nothing is stored inside the backend image. Both the backend
 and the bare-metal ETL talk to it over HTTP on port `6333`. `make qdrant-up` starts it
 and waits until it is ready; `make backend`, `make ingest`, and `make run-etl` all start
-it automatically as a dependency. For bare-metal dev keep `QDRANT_HOST=localhost` in
-`backend/.env` and `BACKEND_URL=http://localhost:8000` in `frontend/.env`.
+it automatically as a dependency. For bare-metal dev keep `QDRANT_PATH=./qdrant_storage` in
+`backend/.env.dev` and `BACKEND_URL=http://localhost:8000` in `frontend/.env.dev`.
 
 ### ETL — scrape and index data
 
@@ -176,6 +197,8 @@ make frontend  # Streamlit on http://localhost:8501
 
 ## 4. Docker Deployment (development)
 
+Uses `backend/.env.dev` and `frontend/.env.dev` automatically (set in `docker-compose.yml`).
+
 ```bash
 # Build images
 make build
@@ -198,65 +221,50 @@ Services:
 
 ## 5. Remote VM Deployment (production)
 
-> **What actually gets sent to the VM:** only **code** (via git) and **secrets + your curated documents** (via `scp`/`rsync`). The vector database is **never** shipped — it is rebuilt on the VM by running the ETL. Everything under `data/` and `qdrant_storage/` is git-ignored, so it is **not** on GitHub.
+> The VM only needs **Docker** installed — no git, no Make, no Python. Images are built locally and shipped over SSH. All config and secrets are copied as part of the deploy command.
 
-### 5a. Get the code onto the VM
+### Prerequisites (local, before first deploy)
 
-```bash
-ssh user@<vm-ip>
-git clone https://github.com/dsl-unibe-ch/climbot /opt/climebot   # or, if already cloned: cd /opt/climebot && git pull
-cd /opt/climebot
-```
-
-### 5b. Send secrets and admin documents (these are NOT in git)
-
-Because the `.env` files and everything under `data/` are git-ignored, they must be copied manually **from your local machine**:
-
-```bash
-# Secrets
-scp backend/.env  user@<vm-ip>:/opt/climebot/backend/.env
-scp frontend/.env user@<vm-ip>:/opt/climebot/frontend/.env
-
-# ⚠️ Admin documents — git-ignored, so copy them explicitly
-rsync -avz data/admin_docs/ user@<vm-ip>:/opt/climebot/data/admin_docs/
-```
-
-> **Reminder:** `data/admin_docs/` holds your hand-curated sources (PDFs, notes) and is **not** on GitHub. If you skip this `scp`/`rsync`, the VM's index will contain only freshly scraped content and will be missing all of your manually added documents.
-
-### 5c. Production `.env` values
-
-Set these on the VM (`backend/.env` / `frontend/.env`):
+Edit `backend/.env.prod` and `frontend/.env.prod` locally (see §2). Key values:
 
 ```dotenv
-AZURE_REDIRECT_URI=https://climebot.example.com
-BACKEND_CORS_ORIGINS=https://climebot.example.com
-BACKEND_URL=http://backend:8000   # frontend/.env
-QDRANT_HOST=qdrant                # backend/.env — the compose service name
-QDRANT_PORT=6333                  # backend/.env
+# backend/.env.prod
+AZURE_REDIRECT_URI=https://climebot.dsl.unibe.ch
+BACKEND_CORS_ORIGINS=https://climebot.dsl.unibe.ch
+QDRANT_HOST=qdrant
+QDRANT_PORT=6333
+
+# frontend/.env.prod
+AZURE_REDIRECT_URI=https://climebot.dsl.unibe.ch
+BACKEND_URL=http://backend:8000
 ```
 
-### 5d. Start the production stack
+Add your `VM_HOST` address to the root `.env`:
+
+
+### 5a. Build and deploy
+
+One command builds the images, copies compose files + env files + nginx config, loads the images on the VM, and starts the stack:
 
 ```bash
-make up-prod
+make deploy
 ```
 
-The `docker-compose.prod.yml` overlay:
-- Starts the **Qdrant service** with its persistent volume, published on **`127.0.0.1:6333` only** (reachable by the host ETL, never exposed publicly)
-- Removes direct port exposure for backend/frontend
-- Starts the nginx reverse proxy bound to `127.0.0.1:8080` only
-
-TLS is terminated by the VM's host-level reverse proxy, which forwards traffic to `127.0.0.1:8080`. The Docker containers have no direct public exposure.
-
-### 5e. Run the full ETL on the VM
-
-Scraping **and** ingestion run on the **VM host** (bare metal via `uv`), exactly as they do locally — so the VM needs Python + `uv` installed (see §3). With the Qdrant service already running from `make up-prod`:
+### 5b. Ship admin documents (first time or when updated)
 
 ```bash
-make run-etl   # scrape → sync admin docs → ingest into the running Qdrant service
+make deploy-data
 ```
 
-The scraper downloads fresh content on the VM, your scp-copied `admin_docs/` are merged in, and everything is indexed into the Qdrant service over `localhost:6333`. Nothing DB-related was shipped — it is built in place.
+### 5c. Run ingestion on the VM
+
+Ingestion runs inside the already-running backend container — no Make or Python needed on the VM host:
+
+```bash
+make ingest-remote
+```
+
+### 5d. Register the VM's URL as a Redirect URI in Entra ID
 
 ### 5f. Register the VM's URL as a Redirect URI in Entra ID
 
@@ -265,7 +273,7 @@ In the Azure Portal, add `https://climebot.example.com` as an additional Redirec
 ### 5g. Smoke-test the deployment
 
 ```bash
-docker compose ps                        # qdrant / backend / frontend should be healthy
+ssh $VM_HOST "cd ~/climbot && docker compose -f docker-compose.yml -f docker-compose.prod.yml ps"
 curl -s http://127.0.0.1:8080/health     # → {"status": "ok"}
 ```
 
@@ -289,6 +297,13 @@ Links that leave the primary domain are followed **one level deep only** (see sp
 
 ## 7. Make Commands Reference
 
+Most commands accept an `ENV` variable (default `dev`). On the VM, prefix commands with `ENV=prod`:
+
+```bash
+make ingest ENV=prod   # uses backend/.env.prod, frontend/.env.prod
+make run-etl ENV=prod
+```
+
 ```
 make help          Show all commands
 make install       Install Python dependencies
@@ -302,6 +317,9 @@ make scrape        Run Scrapy spider (output → data/scraped_docs/)
 make sync-admin-docs  Copy admin_docs/ into scraped_docs/
 make ingest        Start Qdrant, sync admin docs, drop collections, reindex
 make build         Build Docker images
+make deploy        Build + ship images, copy config/env, start stack on VM
+make deploy-data   Copy data/admin_docs/ to the VM
+make ingest-remote Run ingestion inside the backend container on the VM
 make up            Start all services (dev)
 make up-prod       Start with nginx overlay (production)
 make down          Stop containers

@@ -1,0 +1,9 @@
+# Dev overlay — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+  backend:
+    env_file: ./backend/.env.dev
+
+  frontend:
+    env_file: ./frontend/.env.dev
