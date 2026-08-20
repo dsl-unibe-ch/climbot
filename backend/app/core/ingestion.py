@@ -12,11 +12,11 @@ import fitz
 from docx import Document as DocxDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from loguru import logger
-from qdrant_client.models import PointStruct
+from qdrant_client.models import PointStruct, SparseVector
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.config import get_settings
-from app.core.embeddings import embed_image, embed_texts
+from app.core.embeddings import embed_image, embed_sparse, embed_texts
 from app.core.vectorstore import drop_and_recreate_collections, ensure_collections, upsert_points
 
 settings = get_settings()
@@ -71,14 +71,18 @@ def _ingest_text_file(
             return 0, 0
 
         embeddings = _embed_with_retry(chunks)
+        sparse_vecs = embed_sparse(chunks)
         rel = str(path.relative_to(root))
         points = [
             PointStruct(
                 id=str(uuid.uuid5(_ID_NS, f"{rel}:text:{i}:{chunk[:120]}")),
-                vector=emb,
+                vector={
+                    "dense": emb,
+                    "sparse": SparseVector(indices=sp[0], values=sp[1]),
+                },
                 payload={"content": chunk, "source": rel, "type": "text"},
             )
-            for i, (chunk, emb) in enumerate(zip(chunks, embeddings, strict=True))
+            for i, (chunk, emb, sp) in enumerate(zip(chunks, embeddings, sparse_vecs, strict=True))
         ]
         upsert_points(settings.qdrant_collection_text, points)
         logger.info("Indexed {}: {} text chunks", rel, len(chunks))
@@ -109,6 +113,7 @@ def _ingest_pdf_images(pdf_path: Path, root: Path) -> int:
 
                 img_bytes = pix.tobytes("png")
                 emb, description = embed_image(img_bytes)
+                sp = embed_sparse([description])[0]
                 img_id = str(uuid.uuid5(_ID_NS, f"{rel}:img:{page_num}:{xref}"))
 
                 upsert_points(
@@ -116,7 +121,10 @@ def _ingest_pdf_images(pdf_path: Path, root: Path) -> int:
                     [
                         PointStruct(
                             id=img_id,
-                            vector=emb,
+                            vector={
+                                "dense": emb,
+                                "sparse": SparseVector(indices=sp[0], values=sp[1]),
+                            },
                             payload={
                                 "content": description,
                                 "source": rel,
@@ -138,6 +146,7 @@ def _ingest_standalone_image(path: Path, root: Path) -> int:
     try:
         img_bytes = path.read_bytes()
         emb, description = embed_image(img_bytes)
+        sp = embed_sparse([description])[0]
         rel = str(path.relative_to(root))
         img_hash = hashlib.sha1(img_bytes).hexdigest()[:16]  # noqa: S324
         upsert_points(
@@ -145,7 +154,10 @@ def _ingest_standalone_image(path: Path, root: Path) -> int:
             [
                 PointStruct(
                     id=str(uuid.uuid5(_ID_NS, f"{rel}:{img_hash}")),
-                    vector=emb,
+                    vector={
+                        "dense": emb,
+                        "sparse": SparseVector(indices=sp[0], values=sp[1]),
+                    },
                     payload={
                         "content": description,
                         "source": rel,

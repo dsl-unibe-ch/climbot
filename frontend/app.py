@@ -1,3 +1,5 @@
+import os
+import tomllib
 from pathlib import Path
 
 import streamlit as st
@@ -6,6 +8,18 @@ from components.chat_ui import render_chat_history, render_sources, stream_from_
 from components.image_viewer import render_image_results
 
 _LOGO = Path(__file__).parent / "assets" / "images" / "logo_name_white.svg"
+
+
+def _get_version() -> str:
+    # Prefer env var (set by Docker via docker-compose); fall back to pyproject.toml for local dev
+    if v := os.environ.get("APP_VERSION"):
+        return v
+    toml_path = Path(__file__).parents[1] / "pyproject.toml"
+    if toml_path.exists():
+        with toml_path.open("rb") as f:
+            return tomllib.load(f)["project"]["version"]
+    return "unknown"
+
 
 st.set_page_config(
     page_title="NCCR CLIM+ Bot",
@@ -22,7 +36,7 @@ st.markdown(
     "#dsl-footer a{color:#4a6a8a;text-decoration:none;}"
     "#dsl-footer a:hover{color:#8ba3c0;text-decoration:underline;}"
     "</style>"
-    '<div id="dsl-footer">Powered by <a href="https://www.dsl.unibe.ch/" target="_blank">DSL</a></div>',
+    f'<div id="dsl-footer">v{_get_version()} &nbsp;·&nbsp; Created by <a href="https://www.dsl.unibe.ch/" target="_blank">DSL</a></div>',
     unsafe_allow_html=True,
 )
 

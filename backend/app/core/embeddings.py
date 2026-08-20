@@ -1,5 +1,6 @@
 import base64
 
+from fastembed.sparse.bm25 import Bm25
 from openai import OpenAI
 
 from app.config import get_settings
@@ -7,6 +8,7 @@ from app.config import get_settings
 settings = get_settings()
 
 _client: OpenAI | None = None
+_bm25_model: Bm25 | None = None
 
 
 def _openai() -> OpenAI:
@@ -19,12 +21,24 @@ def _openai() -> OpenAI:
     return _client
 
 
+def _bm25() -> Bm25:
+    global _bm25_model
+    if _bm25_model is None:
+        _bm25_model = Bm25("Qdrant/bm25")
+    return _bm25_model
+
+
 def embed_texts(texts: list[str]) -> list[list[float]]:
     response = _openai().embeddings.create(
         model=settings.openai_embedding_model,
         input=texts,
     )
     return [item.embedding for item in response.data]
+
+
+def embed_sparse(texts: list[str]) -> list[tuple[list[int], list[float]]]:
+    """Return BM25 sparse vectors as (indices, values) tuples."""
+    return [(sp.indices.tolist(), sp.values.tolist()) for sp in _bm25().embed(texts)]
 
 
 def embed_image(image_bytes: bytes) -> tuple[list[float], str]:
