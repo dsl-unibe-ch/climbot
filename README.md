@@ -281,7 +281,33 @@ Then open the site, sign in, and confirm chat answers cite the expected sources.
 
 ---
 
-## 6. Scrapy Spider — targeting custom sites
+## 6. Inspecting the Qdrant Index
+
+`scripts/query_qdrant.py` connects to Qdrant and lets you inspect what is indexed without starting the full stack.
+
+```bash
+# List all collections and scroll the first 5 points from each
+make qdrant-query
+
+# Run a similarity search against both collections
+make qdrant-query ARGS='--search "climate extremes Switzerland"'
+
+# Limit results and restrict to one collection
+make qdrant-query ARGS='--search "alpine floods" --limit 10 --collection climate_docs'
+
+# Scroll more points without a query
+make qdrant-query ARGS='--collection climate_images --limit 20'
+```
+
+The script reads `QDRANT_HOST` / `QDRANT_PORT` / `QDRANT_API_KEY` from `backend/.env.dev` (or environment variables). Override the host at runtime:
+
+```bash
+QDRANT_HOST=qdrant-vm.example.com make qdrant-query ARGS='--limit 3'
+```
+
+---
+
+## 7. Scrapy Spider — targeting custom sites
 
 To override the default crawl targets, set in `.env`:
 
@@ -295,7 +321,7 @@ Links that leave the primary domain are followed **one level deep only** (see sp
 
 ---
 
-## 7. Make Commands Reference
+## 8. Make Commands Reference
 
 Most commands accept an `ENV` variable (default `dev`). On the VM, prefix commands with `ENV=prod`:
 
@@ -312,6 +338,7 @@ make backend       Run FastAPI dev server (hot-reload)
 make frontend      Run Streamlit dev server
 make token         Acquire Entra ID token via device-code flow
 make qdrant-up     Start the Qdrant service and wait until ready
+make qdrant-query  Inspect Qdrant collections and run test queries (see below)
 make run-etl       Start Qdrant, scrape, then wipe and reindex from scratch
 make scrape        Run Scrapy spider (output → data/scraped_docs/)
 make sync-admin-docs  Copy admin_docs/ into scraped_docs/
@@ -332,7 +359,7 @@ make format        Format with ruff
 
 ---
 
-## 8. Quick Smoke Tests
+## 9. Quick Smoke Tests
 
 Replace `http://localhost:8000` with your VM URL in production.
 

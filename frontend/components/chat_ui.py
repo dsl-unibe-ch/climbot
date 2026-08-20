@@ -12,25 +12,37 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 _BACKEND = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 
-def render_sources(sources: list) -> None:
+def render_sources(sources: list, key: str = "0") -> None:
     if not sources:
         return
-    st.caption(f"📎 **{len(sources)} source(s)**")
-    for src in sources:
-        icon = "🖼️" if src.get("type") == "image" else "📄"
-        label = f"{icon} {src['source']}"
-        if src.get("page") is not None:
-            label += f"  ·  p. {src['page']}"
-        label += f"  ·  score {src['score']}"
-        with st.expander(label, expanded=False):
-            if src.get("type") == "image" and src.get("image_base64"):
-                img_bytes = base64.b64decode(src["image_base64"])
-                st.image(img_bytes, use_container_width=True)
-            snippet = src.get("snippet", "").strip()
-            if snippet:
-                st.caption(snippet)
-            elif src.get("type") != "image":
-                st.markdown("_No preview available._")
+    _state_key = f"_show_all_src_{key}"
+    show_all = st.session_state.get(_state_key, False)
+    visible = sources if show_all else sources[:3]
+    with st.expander(f"📎 {len(sources)} source(s)", expanded=False):
+        for src in visible:
+            icon = "🖼️" if src.get("type") == "image" else "📄"
+            label = f"{icon} {src['source']}"
+            if src.get("page") is not None:
+                label += f"  ·  p. {src['page']}"
+            label += f"  ·  score {src['score']}"
+            with st.expander(label, expanded=False):
+                if src.get("type") == "image" and src.get("image_base64"):
+                    img_bytes = base64.b64decode(src["image_base64"])
+                    st.image(img_bytes, use_container_width=True)
+                snippet = src.get("snippet", "").strip()
+                if snippet:
+                    st.caption(snippet)
+                elif src.get("type") != "image":
+                    st.markdown("_No preview available._")
+        if len(sources) > 3:
+            if show_all:
+                if st.button("▲ Show less", key=f"_btn_src_{key}"):
+                    st.session_state[_state_key] = False
+                    st.rerun()
+            else:
+                if st.button(f"▼ {len(sources) - 3} more…", key=f"_btn_src_{key}"):
+                    st.session_state[_state_key] = True
+                    st.rerun()
 
 
 def render_chat_history() -> None:
@@ -38,12 +50,15 @@ def render_chat_history() -> None:
     if "messages" not in st.session_state:
         st.session_state["messages"] = []
 
-    for msg in st.session_state["messages"]:
+    for i, msg in enumerate(st.session_state["messages"]):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            if msg.get("think"):
-                with st.expander("🧠 Reasoning", expanded=False):
-                    st.markdown(msg["think"])
+            if msg.get("think") or msg.get("sources"):
+                with st.expander("🧠 Reasoning and📎Source(s)", expanded=False):
+                    if msg.get("think"):
+                        st.markdown(msg["think"])
+                    if msg.get("sources"):
+                        render_sources(msg["sources"], key=str(i))
 
 
 def stream_from_backend(messages: list[dict], token: str) -> tuple[str, str, list]:

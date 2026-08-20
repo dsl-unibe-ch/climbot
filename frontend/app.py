@@ -66,16 +66,9 @@ def main() -> None:
         render_chat_history()
 
     with col_search:
-        chat_sources = st.session_state.get("_chat_sources")
         search = st.session_state.get("_search")
 
-        if chat_sources:
-            st.subheader("📎 Retrieved Sources")
-            render_sources(chat_sources)
-
         if search:
-            if chat_sources:
-                st.divider()
             render_image_results(
                 search["query"],
                 search["include_images"],
@@ -96,18 +89,20 @@ def main() -> None:
                 response, think_text, sources = stream_from_backend(
                     st.session_state["messages"], auth.get_access_token()
                 )
-                if think_text:
+                if think_text or sources:
                     with st.expander("🧠 Reasoning", expanded=False):
-                        st.markdown(think_text)
+                        if think_text:
+                            st.markdown(think_text)
+                        render_sources(sources, key="live")
 
         st.session_state["messages"].append(
             {
                 "role": "assistant",
                 "content": response,
                 "think": think_text,
+                "sources": sources,
             }
         )
-        st.session_state["_chat_sources"] = sources
         st.rerun()
 
 

@@ -1,5 +1,5 @@
 .PHONY: help venv install install-dev check-env \
-        backend frontend scrape sync-admin-docs ingest run-etl qdrant-up token list-models \
+        backend frontend scrape sync-admin-docs ingest run-etl qdrant-up qdrant-query token list-models \
         build deploy deploy-data ingest-remote up up-prod down logs clean \
         precommit lint format
 
@@ -56,6 +56,9 @@ qdrant-up: check-env ## Start the Qdrant vector DB service and wait until it acc
 	@echo "Waiting for Qdrant on localhost:6333 ..."
 	@until $(UV) run python -c "import socket;socket.create_connection(('localhost',6333),1).close()" 2>/dev/null; do sleep 1; done
 	@echo "Qdrant is ready."
+
+qdrant-query: check-env ## Inspect Qdrant collections. ARGS='--search "query" --limit 5 --collection climate_docs'
+	$(UV) run python scripts/query_qdrant.py $(ARGS)
 
 sync-admin-docs: ## Copy admin_docs/ into scraped_docs/ (merges without deleting scraped content)
 	@$(UV) run python -c "\
