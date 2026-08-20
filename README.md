@@ -1,4 +1,4 @@
-# 🌍 ClimeBot
+# 🌍 [ClimeBot](https://climebot.dsl.unibe.ch/)
 
 A RAG-powered climate change research assistant combining **FastAPI**, **Streamlit**, **Qdrant**, and **GPUstack** models. Supports document chat, hybrid BM25 + dense vector search, semantic image search, and Microsoft Entra ID authentication. Data can be harvested automatically with the included Scrapy pipeline.
 

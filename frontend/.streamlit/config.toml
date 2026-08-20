@@ -16,5 +16,3 @@ showErrorDetails = "none"
 
 [browser]
 gatherUsageStats = false
-serverAddress = "climebot.dsl.unibe.ch"
-serverPort = 443
