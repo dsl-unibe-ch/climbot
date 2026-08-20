@@ -70,7 +70,7 @@ async def _sse_stream(
             {
                 "source": h.payload.get("source", "unknown"),
                 "score": round(h.score, 3),
-                "snippet": h.payload.get("content", "")[:300],
+                "snippet": h.payload.get("content", ""),
                 "page": h.payload.get("page"),
                 "type": "text",
             }
@@ -80,7 +80,7 @@ async def _sse_stream(
             {
                 "source": h.payload.get("source", "unknown"),
                 "score": round(h.score, 3),
-                "snippet": h.payload.get("content", "")[:300],
+                "snippet": h.payload.get("content", ""),
                 "page": h.payload.get("page"),
                 "type": "image",
                 "image_base64": h.payload.get("image_base64", ""),
