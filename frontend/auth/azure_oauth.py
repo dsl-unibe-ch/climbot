@@ -16,6 +16,7 @@ _TENANT_ID = os.environ["AZURE_TENANT_ID"]
 _CLIENT_ID = os.environ["AZURE_CLIENT_ID"]
 _CLIENT_SECRET = os.environ.get("AZURE_CLIENT_SECRET", "")
 _REDIRECT_URI = os.environ.get("AZURE_REDIRECT_URI", "http://localhost:8501")
+_ADMIN_CONTACT = os.environ.get("ADMIN_CONTACT", "the administrator")
 
 # Falls back to a sensible default; override via AZURE_API_SCOPE in .env
 _SCOPES = [os.environ.get("AZURE_API_SCOPE", f"api://{_CLIENT_ID}/ClimeBot.Access")]
@@ -69,7 +70,7 @@ class AzureAuth:
                 upn = st.session_state.get("_access_denied_user", "your account")
                 st.error(
                     f"Access denied for **{upn}**.  "
-                    "Please contact [Sukanya Nath](mailto:sukanya.nath@unibe.ch) to request access."
+                    f"Please contact {_ADMIN_CONTACT} to request access."
                 )
                 if st.button("← Back to login"):
                     st.session_state.pop("_access_denied", None)
