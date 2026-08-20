@@ -1,6 +1,6 @@
 # 🌍 ClimeBot
 
-A RAG-powered climate change research assistant combining **FastAPI**, **Streamlit**, **Qdrant**, and **GPUstack** models. Supports document chat, semantic image search, and Microsoft Entra ID authentication. Data can be harvested automatically with the included Scrapy pipeline.
+A RAG-powered climate change research assistant combining **FastAPI**, **Streamlit**, **Qdrant**, and **GPUstack** models. Supports document chat, hybrid BM25 + dense vector search, semantic image search, and Microsoft Entra ID authentication. Data can be harvested automatically with the included Scrapy pipeline.
 
 ---
 
@@ -26,8 +26,8 @@ A RAG-powered climate change research assistant combining **FastAPI**, **Streaml
           ┌─────────────▼──────────────┐
           │   Qdrant service (container)│
           │   named volume: qdrant_data │
-          │   climate_docs             │
-          │   climate_images           │
+          │   climate_docs (dense + sparse)  │
+          │   climate_images (dense + sparse) │
           └────────────────────────────┘
 
   Scraper (local / VM, not in Docker)
@@ -55,6 +55,7 @@ A RAG-powered climate change research assistant combining **FastAPI**, **Streaml
 | GNU Make | 4.x |
 | OpenAI API key (GPU Stack Key) | — |
 | Microsoft Entra ID app registration | — |
+| fastembed (auto-installed) | `Qdrant/bm25` model downloaded on first use (~50 MB) |
 
 ---
 
@@ -124,7 +125,7 @@ BACKEND_URL=http://backend:8000   # Docker service name
 
 ---
 
-## 3. Local Development (without Docker)
+## 3. Local Development
 
 ### Install uv
 
@@ -176,24 +177,12 @@ make ingest           # sync admin docs, DROP collections, and reindex from scra
 The ingestion pipeline:
 1. Extracts text from PDFs/DOCX and splits into chunks
 2. Extracts images from PDFs, describes each with the vision model, embeds the description
-3. Embeds all text chunks
-4. Indexes everything into Qdrant (`climate_docs` + `climate_images` collections)
+3. Embeds all text chunks with the dense (Qwen) model
+4. Generates BM25 sparse vectors for all text and image descriptions via `fastembed`
+5. Indexes everything into Qdrant (`climate_docs` + `climate_images` collections), each point storing both a named `dense` and `sparse` vector
 
 You can also skip scraping and drop files directly into `data/admin_docs/`, then run `make ingest`.
 
-### Run the backend
-
-```bash
-make backend   # FastAPI on http://localhost:8000
-```
-
-### Run the frontend (separate terminal)
-
-```bash
-make frontend  # Streamlit on http://localhost:8501
-```
-
----
 
 ## 4. Docker Deployment (development)
 
@@ -289,7 +278,7 @@ Then open the site, sign in, and confirm chat answers cite the expected sources.
 # List all collections and scroll the first 5 points from each
 make qdrant-query
 
-# Run a similarity search against both collections
+# Run a hybrid BM25 + dense RRF search against both collections
 make qdrant-query ARGS='--search "climate extremes Switzerland"'
 
 # Limit results and restrict to one collection
@@ -359,7 +348,13 @@ make format        Format with ruff
 
 ---
 
-## 9. Quick Smoke Tests
+## 9. Version Footer
+
+The Streamlit UI displays the app version (from `pyproject.toml`) in the bottom-right corner. In Docker the version is injected via the `APP_VERSION` environment variable, which `docker-compose.yml` sets automatically from the `VERSION` Makefile variable. In local dev (no Docker) the frontend reads `pyproject.toml` directly as a fallback.
+
+---
+
+## 10. Quick Smoke Tests
 
 Replace `http://localhost:8000` with your VM URL in production.
 
