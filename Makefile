@@ -69,7 +69,7 @@ src=pathlib.Path('data/admin_docs'); dst=pathlib.Path('data/scraped_docs'); \
  for s in src.rglob('*') if s.is_file() and not s.name.startswith('.')]"
 
 ingest: check-env qdrant-up sync-admin-docs ## Drop Qdrant collections and index data/scraped_docs/ from scratch
-	cd backend && DATA_DIR=../data/scraped_docs $(UV) run python -m app.core.ingestion --fresh
+	cd backend && DATA_DIR=../data/scraped_docs $(UV) run --env-file .env.$(ENV) python -m app.core.ingestion --fresh
 
 run-etl: check-env qdrant-up ## Start Qdrant, scrape, then wipe and reindex from scratch
 	$(MAKE) scrape

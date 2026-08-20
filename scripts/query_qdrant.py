@@ -74,18 +74,28 @@ def scroll_points(collection: str, limit: int = 5) -> None:
 def search(collection: str, query: str, limit: int = 5) -> None:
     # Import here so the script can still list/scroll without needing the model
     sys.path.insert(0, str(_repo_root / "backend"))
-    from app.core.embeddings import embed_texts
+    from qdrant_client.models import Fusion, FusionQuery, Prefetch, SparseVector
+
+    from app.core.embeddings import embed_sparse, embed_texts
 
     print(f"\nEmbedding query: '{query}'")
-    vectors = embed_texts([query])
-    query_vector = vectors[0]
+    query_vector = embed_texts([query])[0]
+    sparse_indices, sparse_values = embed_sparse([query])[0]
 
-    results = client.search(
+    results = client.query_points(
         collection_name=collection,
-        query_vector=query_vector,
+        prefetch=[
+            Prefetch(query=query_vector, using="dense", limit=limit * 4),
+            Prefetch(
+                query=SparseVector(indices=sparse_indices, values=sparse_values),
+                using="sparse",
+                limit=limit * 4,
+            ),
+        ],
+        query=FusionQuery(fusion=Fusion.RRF),
         limit=limit,
         with_payload=True,
-    )
+    ).points
     print(f"\n--- Search results in '{collection}' (top {limit}) ---")
     if not results:
         print("  (no results)")

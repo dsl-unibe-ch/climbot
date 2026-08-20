@@ -16,6 +16,7 @@ tiktoken==0.8.0
 
 # Vector store
 qdrant-client==1.12.0
+fastembed>=0.4.0
 
 # Document processing
 pymupdf==1.24.11

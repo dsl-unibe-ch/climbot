@@ -136,7 +136,8 @@ class AzureAuth:
 
         if "access_token" in result:
             claims = result.get("id_token_claims", {})
-            upn = (claims.get("preferred_username") or "").lower()
+            # preferred_username may differ from email for some Entra ID account types
+            upn = (claims.get("preferred_username") or claims.get("email") or "").lower()
             if _ALLOWED_USERS and upn not in _ALLOWED_USERS:
                 st.query_params.clear()
                 st.session_state["_access_denied"] = True

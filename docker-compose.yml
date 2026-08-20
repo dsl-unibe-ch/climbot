@@ -46,6 +46,8 @@ services:
         - linux/amd64
     image: climebot-frontend:${VERSION:-latest}
     container_name: climebot-frontend-${VERSION:-latest}
+    environment:
+      - APP_VERSION=${VERSION:-unknown}
     ports:
       - "8501:8501"
     depends_on:

@@ -1,5 +1,15 @@
 from qdrant_client import AsyncQdrantClient, QdrantClient
-from qdrant_client.models import Distance, PointStruct, ScoredPoint, VectorParams
+from qdrant_client.models import (
+    Distance,
+    Fusion,
+    FusionQuery,
+    PointStruct,
+    Prefetch,
+    ScoredPoint,
+    SparseVector,
+    SparseVectorParams,
+    VectorParams,
+)
 
 from app.config import get_settings
 
@@ -31,26 +41,43 @@ def _async() -> AsyncQdrantClient:
     return _async_client
 
 
+def _is_legacy_schema(info) -> bool:
+    """True when the collection still uses the old unnamed single-vector config."""
+    return not isinstance(info.config.params.vectors, dict)
+
+
 def ensure_collections() -> None:
     """Sync variant — for the CLI ingestion process only."""
     client = _sync()
     for name in (settings.qdrant_collection_text, settings.qdrant_collection_images):
-        if not client.collection_exists(name):
-            client.create_collection(
-                collection_name=name,
-                vectors_config=VectorParams(size=settings.embedding_dim, distance=Distance.COSINE),
-            )
+        if client.collection_exists(name):
+            if not _is_legacy_schema(client.get_collection(name)):
+                continue
+            client.delete_collection(name)
+        client.create_collection(
+            collection_name=name,
+            vectors_config={
+                "dense": VectorParams(size=settings.embedding_dim, distance=Distance.COSINE)
+            },
+            sparse_vectors_config={"sparse": SparseVectorParams()},
+        )
 
 
 async def ensure_collections_async() -> None:
     """Async variant — for the FastAPI lifespan; keeps the server on a single async client."""
     client = _async()
     for name in (settings.qdrant_collection_text, settings.qdrant_collection_images):
-        if not await client.collection_exists(name):
-            await client.create_collection(
-                collection_name=name,
-                vectors_config=VectorParams(size=settings.embedding_dim, distance=Distance.COSINE),
-            )
+        if await client.collection_exists(name):
+            if not _is_legacy_schema(await client.get_collection(name)):
+                continue
+            await client.delete_collection(name)
+        await client.create_collection(
+            collection_name=name,
+            vectors_config={
+                "dense": VectorParams(size=settings.embedding_dim, distance=Distance.COSINE)
+            },
+            sparse_vectors_config={"sparse": SparseVectorParams()},
+        )
 
 
 def drop_and_recreate_collections() -> None:
@@ -60,7 +87,10 @@ def drop_and_recreate_collections() -> None:
             client.delete_collection(name)
         client.create_collection(
             collection_name=name,
-            vectors_config=VectorParams(size=settings.embedding_dim, distance=Distance.COSINE),
+            vectors_config={
+                "dense": VectorParams(size=settings.embedding_dim, distance=Distance.COSINE)
+            },
+            sparse_vectors_config={"sparse": SparseVectorParams()},
         )
 
 
@@ -69,11 +99,24 @@ def upsert_points(collection: str, points: list[PointStruct]) -> None:
 
 
 async def search_async(
-    collection: str, query_vector: list[float], top_k: int = 5
+    collection: str,
+    query_vector: list[float],
+    sparse_indices: list[int],
+    sparse_values: list[float],
+    top_k: int = 5,
 ) -> list[ScoredPoint]:
-    return await _async().search(
+    response = await _async().query_points(
         collection_name=collection,
-        query_vector=query_vector,
+        prefetch=[
+            Prefetch(query=query_vector, using="dense", limit=top_k * 4),
+            Prefetch(
+                query=SparseVector(indices=sparse_indices, values=sparse_values),
+                using="sparse",
+                limit=top_k * 4,
+            ),
+        ],
+        query=FusionQuery(fusion=Fusion.RRF),
         limit=top_k,
         with_payload=True,
     )
+    return response.points
