@@ -6,6 +6,7 @@ from loguru import logger
 
 from app.api import chat, health, search
 from app.config import get_settings
+from app.core.embeddings import embed_sparse
 from app.core.vectorstore import ensure_collections_async
 
 settings = get_settings()
@@ -15,6 +16,8 @@ settings = get_settings()
 async def lifespan(app: FastAPI):  # noqa: ARG001
     logger.info("ClimeBot backend starting — ensuring Qdrant collections…")
     await ensure_collections_async()
+    logger.info("Pre-warming BM25 model…")
+    embed_sparse(["warmup"])  # loads and caches the fastembed model before first request
     logger.info("Ready.")
     yield
     logger.info("ClimeBot backend shutting down.")
