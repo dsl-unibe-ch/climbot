@@ -21,7 +21,7 @@ fastembed>=0.4.0
 # Document processing
 pymupdf==1.24.11
 python-docx==1.1.2
-Pillow==12.3.0
+Pillow==13.0.0
 langchain-text-splitters==1.1.2
 
 # Utilities
