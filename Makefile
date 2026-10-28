@@ -7,6 +7,7 @@ UV      := uv
 COMPOSE := docker compose
 ENV     ?= dev  # override with ENV=prod for production (e.g. make ingest ENV=prod)
 VM_HOST ?= $(shell grep '^VM_HOST=' .env 2>/dev/null | cut -d'=' -f2-)
+REMOTE_DIR ?= /srv/climbot
 
 # Image tag derived from pyproject.toml; consumed by docker-compose via ${VERSION}
 VERSION := $(shell $(UV) run python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])" 2>/dev/null || python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
@@ -89,28 +90,28 @@ build: ## Build all Docker images (no cache)
 deploy: build ## Build images locally, ship everything to VM, and start the production stack
 	@test -n "$(VM_HOST)" || (echo "ERROR: VM_HOST not set. Add VM_HOST=user@host to .env" && exit 1)
 	@echo "==> Creating remote directories..."
-	ssh $(VM_HOST) "mkdir -p ~/climbot/backend ~/climbot/frontend ~/climbot/nginx"
+	ssh $(VM_HOST) "mkdir -p $(REMOTE_DIR)/backend $(REMOTE_DIR)/frontend $(REMOTE_DIR)/nginx"
 	@echo "==> Copying compose files, nginx config, and env files..."
-	scp docker-compose.yml docker-compose.prod.yml $(VM_HOST):~/climbot/
-	scp nginx/nginx.conf $(VM_HOST):~/climbot/nginx/nginx.conf
-	scp backend/.env.prod $(VM_HOST):~/climbot/backend/.env.prod
-	scp frontend/.env.prod $(VM_HOST):~/climbot/frontend/.env.prod
+	scp docker-compose.yml docker-compose.prod.yml $(VM_HOST):$(REMOTE_DIR)/
+	scp nginx/nginx.conf $(VM_HOST):$(REMOTE_DIR)/nginx/nginx.conf
+	scp backend/.env.prod $(VM_HOST):$(REMOTE_DIR)/backend/.env.prod
+	scp frontend/.env.prod $(VM_HOST):$(REMOTE_DIR)/frontend/.env.prod
 	@echo "==> Shipping Docker images (this may take a while)..."
 	docker save climebot-backend:$(or $(VERSION),latest) climebot-frontend:$(or $(VERSION),latest) \
 	  | gzip \
 	  | ssh $(VM_HOST) "docker load"
 	@echo "==> Starting production stack on VM..."
-	ssh $(VM_HOST) "cd ~/climbot && VERSION=$(or $(VERSION),latest) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d"
+	ssh $(VM_HOST) "cd $(REMOTE_DIR) && VERSION=$(or $(VERSION),latest) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d"
 	@echo "Deploy complete. Stack is running on $(VM_HOST)."
 
 deploy-data: ## Copy data/admin_docs/ into the running backend container on the VM
 	@test -n "$(VM_HOST)" || (echo "ERROR: VM_HOST not set. Add VM_HOST=user@host to .env" && exit 1)
 	scp -r data/admin_docs $(VM_HOST):~/climbot_admin_docs_tmp
-	ssh $(VM_HOST) "cd ~/climbot && docker compose -f docker-compose.yml -f docker-compose.prod.yml cp ~/climbot_admin_docs_tmp/. backend:/app/data/admin_docs/ && rm -rf ~/climbot_admin_docs_tmp"
+	ssh $(VM_HOST) "cd $(REMOTE_DIR) && docker compose -f docker-compose.yml -f docker-compose.prod.yml cp ~/climbot_admin_docs_tmp/. backend:/app/data/admin_docs/ && rm -rf ~/climbot_admin_docs_tmp"
 
 ingest-remote: ## Run ingestion inside the backend container on the VM
 	@test -n "$(VM_HOST)" || (echo "ERROR: VM_HOST not set. Add VM_HOST=user@host to .env" && exit 1)
-	ssh $(VM_HOST) "cd ~/climbot && docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m app.core.ingestion --fresh"
+	ssh $(VM_HOST) "cd $(REMOTE_DIR) && docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m app.core.ingestion --fresh"
 
 up: check-env ## Start all services in detached mode (dev)
 	$(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml up -d
