@@ -273,7 +273,7 @@ In the Azure Portal, add `https://climebot.example.com` as an additional Redirec
 ### 5g. Smoke-test the deployment
 
 ```bash
-ssh $VM_HOST "cd ~/climbot && docker compose -f docker-compose.yml -f docker-compose.prod.yml ps"
+ssh $VM_HOST "cd /srv/climbot && docker compose -f docker-compose.yml -f docker-compose.prod.yml ps"
 curl -s http://127.0.0.1:8080/health     # → {"status": "ok"}
 ```
 
