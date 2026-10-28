@@ -117,7 +117,7 @@ def _ingest_text_file(
                     "dense": emb,
                     "sparse": SparseVector(indices=sp[0], values=sp[1]),
                 },
-                payload={"content": chunk, "source": rel, "type": "text"},
+                payload={"content": chunk, "source": path.name, "type": "text"},
             )
             for i, (chunk, emb, sp) in enumerate(zip(chunks, embeddings, sparse_vecs, strict=True))
         ]
@@ -164,7 +164,7 @@ def _ingest_pdf_images(pdf_path: Path, root: Path) -> int:
                             },
                             payload={
                                 "content": description,
-                                "source": rel,
+                                "source": pdf_path.name,
                                 "image_base64": base64.b64encode(img_bytes).decode(),
                                 "image_ext": image_ext,
                                 "page": page_num,
@@ -198,7 +198,7 @@ def _ingest_standalone_image(path: Path, root: Path) -> int:
                     },
                     payload={
                         "content": description,
-                        "source": rel,
+                        "source": path.name,
                         "image_base64": base64.b64encode(img_bytes).decode(),
                         "image_ext": image_ext,
                         "type": "image",

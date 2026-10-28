@@ -137,6 +137,33 @@ class ImagePipelineTests(unittest.TestCase):
         point = self.assert_compressed_point()
         self.assertEqual(point.id, str(uuid.uuid5(ingestion._ID_NS, "chart.pdf:img:0:7")))
 
+    def test_nested_files_store_only_file_name_as_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nested = root / "sharepoint" / "sub"
+            nested.mkdir(parents=True)
+            image_path = nested / "chart.png"
+            image_path.write_bytes(self.original)
+            text_path = nested / "notes.txt"
+            text_path.write_text("climate notes")
+            self.assertEqual(ingestion._ingest_standalone_image(image_path, root), 1)
+            image_point = self.upsert_points.call_args.args[1][0]
+            with patch.object(ingestion, "_embed_with_retry", return_value=[[0.1, 0.2]]):
+                splitter = MagicMock()
+                splitter.split_text.return_value = ["climate notes"]
+                self.assertEqual(
+                    ingestion._ingest_text_file(text_path, root, ".txt", splitter), (1, 0)
+                )
+            text_point = self.upsert_points.call_args.args[1][0]
+
+        self.assertEqual(image_point.payload["source"], "chart.png")
+        self.assertEqual(text_point.payload["source"], "notes.txt")
+        digest = hashlib.sha1(self.original).hexdigest()[:16]  # noqa: S324
+        self.assertEqual(
+            image_point.id,
+            str(uuid.uuid5(ingestion._ID_NS, f"sharepoint/sub/chart.png:{digest}")),
+        )
+
 
 class VisionMimeTests(unittest.TestCase):
     def test_vision_request_uses_actual_image_format(self):
