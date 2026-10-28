@@ -18,6 +18,9 @@ settings = get_settings()
 _sync_client: QdrantClient | None = None
 _async_client: AsyncQdrantClient | None = None
 
+# Leave headroom below Qdrant's default 32 MiB JSON request limit.
+_MAX_UPSERT_BYTES = 16 * 1024 * 1024
+
 
 def _sync() -> QdrantClient:
     global _sync_client
@@ -95,7 +98,37 @@ def drop_and_recreate_collections() -> None:
 
 
 def upsert_points(collection: str, points: list[PointStruct]) -> None:
-    _sync().upsert(collection_name=collection, points=points, wait=True)
+    """Write size-bounded batches; propagate failures to the ingestion caller."""
+    envelope_bytes = len(b'{"points":[]}')
+    batch: list[PointStruct] = []
+    batch_bytes = envelope_bytes
+
+    for point in points:
+        # Match the Qdrant REST client's Pydantic serialization options.
+        point_bytes = len(
+            point.model_dump_json(by_alias=True, exclude_unset=True, exclude_none=True).encode(
+                "utf-8"
+            )
+        )
+        if envelope_bytes + point_bytes > _MAX_UPSERT_BYTES:
+            raise ValueError(
+                f"Point {point.id} in collection {collection} requires "
+                f"{envelope_bytes + point_bytes} bytes, exceeding the "
+                f"{_MAX_UPSERT_BYTES}-byte upsert limit; reduce its payload size"
+            )
+
+        separator_bytes = 1 if batch else 0
+        if batch_bytes + separator_bytes + point_bytes > _MAX_UPSERT_BYTES:
+            _sync().upsert(collection_name=collection, points=batch, wait=True)
+            batch = []
+            batch_bytes = envelope_bytes
+            separator_bytes = 0
+
+        batch.append(point)
+        batch_bytes += separator_bytes + point_bytes
+
+    if batch:
+        _sync().upsert(collection_name=collection, points=batch, wait=True)
 
 
 async def search_async(

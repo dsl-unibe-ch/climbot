@@ -6,12 +6,14 @@ import argparse
 import base64
 import hashlib
 import uuid
+from io import BytesIO
 from pathlib import Path
 
 import fitz
 from docx import Document as DocxDocument
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from loguru import logger
+from PIL import Image, ImageOps
 from qdrant_client.models import PointStruct, SparseVector
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -26,6 +28,41 @@ _ID_NS = uuid.UUID("a3b4c5d6-e7f8-5a9b-8c0d-1e2f3a4b5c6d")
 _TEXT_EXTS = frozenset({".pdf", ".docx", ".txt", ".md"})
 _IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 _MIN_IMAGE_PX = 100  # skip tiny images (icons, decorations)
+# Base64 adds one third; leave room for vectors and metadata in a 16 MiB upsert.
+_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+def _prepare_image(img_bytes: bytes, image_ext: str) -> tuple[bytes, str]:
+    """Keep small images unchanged; compress oversized images for vision and storage."""
+    if len(img_bytes) <= _MAX_IMAGE_BYTES:
+        return img_bytes, image_ext
+
+    with Image.open(BytesIO(img_bytes)) as original:
+        image = ImageOps.exif_transpose(original).convert("RGBA")
+    background = Image.new("RGB", image.size, "white")
+    background.paste(image, mask=image.getchannel("A"))
+    image = background
+
+    while True:
+        for quality in (90, 80, 70):
+            output = BytesIO()
+            image.save(output, format="JPEG", quality=quality, optimize=True)
+            compressed = output.getvalue()
+            if len(compressed) <= _MAX_IMAGE_BYTES:
+                logger.info(
+                    "Compressed image: {} -> {} bytes (JPEG, {}x{}, quality {})",
+                    len(img_bytes),
+                    len(compressed),
+                    image.width,
+                    image.height,
+                    quality,
+                )
+                return compressed, "jpg"
+
+        size = (max(1, image.width * 3 // 4), max(1, image.height * 3 // 4))
+        if size == image.size:
+            raise ValueError(f"Cannot compress image below {_MAX_IMAGE_BYTES} bytes")
+        image = image.resize(size, Image.Resampling.LANCZOS)
 
 
 def ingest_documents(data_dir: str | None = None) -> tuple[int, int]:
@@ -111,7 +148,7 @@ def _ingest_pdf_images(pdf_path: Path, root: Path) -> int:
                 if pix.n - pix.alpha > 3:  # convert CMYK → RGB
                     pix = fitz.Pixmap(fitz.csRGB, pix)
 
-                img_bytes = pix.tobytes("png")
+                img_bytes, image_ext = _prepare_image(pix.tobytes("png"), "png")
                 emb, description = embed_image(img_bytes)
                 sp = embed_sparse([description])[0]
                 img_id = str(uuid.uuid5(_ID_NS, f"{rel}:img:{page_num}:{xref}"))
@@ -129,7 +166,7 @@ def _ingest_pdf_images(pdf_path: Path, root: Path) -> int:
                                 "content": description,
                                 "source": rel,
                                 "image_base64": base64.b64encode(img_bytes).decode(),
-                                "image_ext": "png",
+                                "image_ext": image_ext,
                                 "page": page_num,
                                 "type": "image",
                             },
@@ -145,10 +182,11 @@ def _ingest_pdf_images(pdf_path: Path, root: Path) -> int:
 def _ingest_standalone_image(path: Path, root: Path) -> int:
     try:
         img_bytes = path.read_bytes()
+        img_hash = hashlib.sha1(img_bytes).hexdigest()[:16]  # noqa: S324
+        img_bytes, image_ext = _prepare_image(img_bytes, path.suffix.lstrip("."))
         emb, description = embed_image(img_bytes)
         sp = embed_sparse([description])[0]
         rel = str(path.relative_to(root))
-        img_hash = hashlib.sha1(img_bytes).hexdigest()[:16]  # noqa: S324
         upsert_points(
             settings.qdrant_collection_images,
             [
@@ -162,7 +200,7 @@ def _ingest_standalone_image(path: Path, root: Path) -> int:
                         "content": description,
                         "source": rel,
                         "image_base64": base64.b64encode(img_bytes).decode(),
-                        "image_ext": path.suffix.lstrip("."),
+                        "image_ext": image_ext,
                         "type": "image",
                     },
                 )

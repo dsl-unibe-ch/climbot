@@ -25,13 +25,12 @@ from climebot_scraper.items import ClimateDocItem, ClimatePageItem
 _PDF_EXTS = (".pdf",)
 _IMG_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
-# Derived from the default start URL; controls the external-depth guard below
-_PRIMARY_DOMAIN = "nccr-climplus.ch"
-
-_DEFAULT_DOMAINS = [_PRIMARY_DOMAIN]
+_DEFAULT_DOMAINS = ["nccr-climplus.ch", "climplus-data.c2sm.ch", "c2sm.github.io"]
 
 _DEFAULT_START_URLS = [
     "https://nccr-climplus.ch/",
+    "https://c2sm.github.io",
+    "https://climplus-data.c2sm.ch/",
 ]
 
 # Pages to skip; all other links on allowed_domains are followed
@@ -40,7 +39,6 @@ _FOLLOW_DENY = [
     r"/login",
     r"/register",
     r"/cart",
-    r"#",
 ]
 
 
@@ -60,18 +58,11 @@ class ClimateSpider(CrawlSpider):
             LinkExtractor(deny=_FOLLOW_DENY),
             callback="parse_page",
             follow=True,
-            process_request="limit_external_depth",
         ),
     )
 
     def parse_start_url(self, response):
         yield from self.parse_page(response)
-
-    def limit_external_depth(self, request, response):
-        # Block link-following from pages already off the primary domain
-        if _PRIMARY_DOMAIN not in response.url.split("/")[2]:
-            return None
-        return request
 
     def parse_page(self, response):
         title = response.css("title::text").get(default="").strip()
