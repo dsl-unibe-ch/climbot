@@ -160,19 +160,19 @@ This runs `make scrape` followed by `make ingest` in sequence.
 
 ```
 data/
-  admin_docs/    # drop your own PDFs / images / .txt / .md files here
-  scraped_docs/  # scraper writes here; admin_docs are merged in before indexing
+  scraped_docs/  # scraper writes here
+  sharepoint/    # documents exported from SharePoint; drop your own PDFs / images / .txt / .md here
 ```
 
 #### Individual ETL commands
 
 ```bash
 make scrape           # crawl configured sites, download to data/scraped_docs/
-make sync-admin-docs  # copy admin_docs/ into scraped_docs/
-make ingest           # sync admin docs, DROP collections, and reindex from scratch
+make ingest           # DROP collections and reindex everything under data/ from scratch
 ```
 
-> `make ingest` always wipes the Qdrant collections and rebuilds from scratch — there is no separate "reingest". This guarantees the index exactly matches what is on disk and prevents stale entries.
+> `make ingest` indexes every supported file under `data/` (all subfolders), the same as
+> `make ingest-remote` does on the VM. `make ingest` always wipes the Qdrant collections and rebuilds from scratch — there is no separate "reingest". This guarantees the index exactly matches what is on disk and prevents stale entries.
 
 The ingestion pipeline:
 1. Extracts text from PDFs/DOCX and splits into chunks
@@ -186,7 +186,7 @@ the default 32 MiB request limit, so large documents do not exceed it.
 Images larger than 8 MiB are automatically JPEG-compressed reducing quality from 90 to 70 and then resizing
 proportionally only if needed.
 
-You can also skip scraping and drop files directly into `data/admin_docs/`, then run `make ingest`.
+You can also skip scraping and drop files directly into `data/sharepoint/`, then run `make ingest`.
 
 
 ## 4. Docker Deployment (development)
@@ -250,7 +250,9 @@ One command builds the images, copies compose files + env files + nginx config, 
 make deploy
 ```
 
-### 5b. Ship admin documents (first time or when updated)
+### 5b. Ship SharePoint documents (first time or when updated)
+
+Copies `data/sharepoint/` to `/srv/climbot/data/` on the VM:
 
 ```bash
 make deploy-data
@@ -266,11 +268,9 @@ make ingest-remote
 
 ### 5d. Register the VM's URL as a Redirect URI in Entra ID
 
-### 5f. Register the VM's URL as a Redirect URI in Entra ID
-
 In the Azure Portal, add `https://climebot.example.com` as an additional Redirect URI for your app registration (required for the OAuth login flow).
 
-### 5g. Smoke-test the deployment
+### 5e. Smoke-test the deployment
 
 ```bash
 ssh $VM_HOST "cd /srv/climbot && docker compose -f docker-compose.yml -f docker-compose.prod.yml ps"
@@ -341,11 +341,10 @@ make qdrant-up     Start the Qdrant service and wait until ready
 make qdrant-query  Inspect Qdrant collections and run test queries (see below)
 make run-etl       Start Qdrant, scrape, then wipe and reindex from scratch
 make scrape        Run Scrapy spider (output → data/scraped_docs/)
-make sync-admin-docs  Copy admin_docs/ into scraped_docs/
-make ingest        Start Qdrant, sync admin docs, drop collections, reindex
+make ingest        Start Qdrant, drop collections, reindex everything under data/
 make build         Build Docker images
 make deploy        Build + ship images, copy config/env, start stack on VM
-make deploy-data   Copy data/admin_docs/ to the VM
+make deploy-data   Copy data/sharepoint/ to the VM
 make ingest-remote Run ingestion inside the backend container on the VM
 make up            Start all services (dev)
 make up-prod       Start with nginx overlay (production)

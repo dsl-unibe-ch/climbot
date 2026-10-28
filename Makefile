@@ -1,5 +1,5 @@
 .PHONY: help venv install install-dev check-env \
-        backend frontend scrape sync-admin-docs ingest run-etl qdrant-up qdrant-query token list-models \
+        backend frontend scrape ingest run-etl qdrant-up qdrant-query token list-models \
         build deploy deploy-data ingest-remote up up-prod down logs clean \
         precommit lint format
 
@@ -61,16 +61,8 @@ qdrant-up: check-env ## Start the Qdrant vector DB service and wait until it acc
 qdrant-query: check-env ## Inspect Qdrant collections. ARGS='--search "query" --limit 5 --collection climate_docs'
 	$(UV) run python scripts/query_qdrant.py $(ARGS)
 
-sync-admin-docs: ## Copy admin_docs/ into scraped_docs/ (merges without deleting scraped content)
-	@$(UV) run python -c "\
-import shutil, pathlib; \
-src=pathlib.Path('data/admin_docs'); dst=pathlib.Path('data/scraped_docs'); \
-[dst.joinpath(s.relative_to(src)).parent.mkdir(parents=True,exist_ok=True) or \
- shutil.copy2(s, dst/s.relative_to(src)) \
- for s in src.rglob('*') if s.is_file() and not s.name.startswith('.')]"
-
-ingest: check-env qdrant-up sync-admin-docs ## Drop Qdrant collections and index data/scraped_docs/ from scratch
-	cd backend && DATA_DIR=../data/scraped_docs $(UV) run --env-file .env.$(ENV) python -m app.core.ingestion --fresh
+ingest: check-env qdrant-up ## Drop Qdrant collections and index everything under data/ from scratch
+	cd backend && DATA_DIR=../data $(UV) run --env-file .env.$(ENV) python -m app.core.ingestion --fresh
 
 run-etl: check-env qdrant-up ## Start Qdrant, scrape, then wipe and reindex from scratch
 	$(MAKE) scrape
@@ -104,10 +96,11 @@ deploy: build ## Build images locally, ship everything to VM, and start the prod
 	ssh $(VM_HOST) "cd $(REMOTE_DIR) && VERSION=$(or $(VERSION),latest) docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d"
 	@echo "Deploy complete. Stack is running on $(VM_HOST)."
 
-deploy-data: ## Copy data/admin_docs/ into the running backend container on the VM
+deploy-data: ## Copy data/sharepoint/ to $(REMOTE_DIR)/data/ on the VM
 	@test -n "$(VM_HOST)" || (echo "ERROR: VM_HOST not set. Add VM_HOST=user@host to .env" && exit 1)
-	scp -r data/admin_docs $(VM_HOST):~/climbot_admin_docs_tmp
-	ssh $(VM_HOST) "cd $(REMOTE_DIR) && docker compose -f docker-compose.yml -f docker-compose.prod.yml cp ~/climbot_admin_docs_tmp/. backend:/app/data/admin_docs/ && rm -rf ~/climbot_admin_docs_tmp"
+	@test -d data/sharepoint || (echo "ERROR: data/sharepoint not found" && exit 1)
+	ssh $(VM_HOST) "mkdir -p $(REMOTE_DIR)/data"
+	scp -r data/sharepoint $(VM_HOST):$(REMOTE_DIR)/data/
 
 ingest-remote: ## Run ingestion inside the backend container on the VM
 	@test -n "$(VM_HOST)" || (echo "ERROR: VM_HOST not set. Add VM_HOST=user@host to .env" && exit 1)
