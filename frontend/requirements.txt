@@ -1,4 +1,6 @@
 streamlit==1.61.0
+# Streamlit 1.61's media gzip responder fails with Starlette 1.x.
+starlette>=0.52.1,<1.0
 httpx==0.27.2
 msal==1.31.0
 Pillow==12.3.0

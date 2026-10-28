@@ -181,6 +181,11 @@ The ingestion pipeline:
 4. Generates BM25 sparse vectors for all text and image descriptions via `fastembed`
 5. Indexes everything into Qdrant (`climate_docs` + `climate_images` collections), each point storing both a named `dense` and `sparse` vector
 
+Qdrant writes are split into batches of at most 16 MiB of serialized JSON, below
+the default 32 MiB request limit, so large documents do not exceed it.
+Images larger than 8 MiB are automatically JPEG-compressed reducing quality from 90 to 70 and then resizing
+proportionally only if needed.
+
 You can also skip scraping and drop files directly into `data/admin_docs/`, then run `make ingest`.
 
 
@@ -201,6 +206,12 @@ make logs
 # Stop
 make down
 ```
+
+The frontend constrains Starlette to a compatible pre-1.0 version: with
+Streamlit 1.61, Starlette 1.x can cause broken image previews and
+`Expected ASGI message 'http.response.start'` errors. After updating frontend
+dependencies, rebuild and recreate the frontend container; no reindexing is
+needed for this display issue.
 
 Services:
 - Streamlit UI → `http://localhost:8501`

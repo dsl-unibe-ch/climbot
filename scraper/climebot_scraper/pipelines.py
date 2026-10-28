@@ -15,7 +15,10 @@ class FileDownloadPipeline(FilesPipeline):
 
     def get_media_requests(self, item, info):
         for url in item.get("file_urls", []):
-            yield Request(url, meta={"referrer": item.get("url", "")})
+            yield Request(
+                url,
+                meta={"referrer": item.get("url", ""), "allow_offsite": True},
+            )
 
     def file_path(self, request, response=None, info=None, *, item=None):
         url = request.url
