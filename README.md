@@ -207,12 +207,6 @@ make logs
 make down
 ```
 
-The frontend constrains Starlette to a compatible pre-1.0 version: with
-Streamlit 1.61, Starlette 1.x can cause broken image previews and
-`Expected ASGI message 'http.response.start'` errors. After updating frontend
-dependencies, rebuild and recreate the frontend container; no reindexing is
-needed for this display issue.
-
 Services:
 - Streamlit UI → `http://localhost:8501`
 - FastAPI docs → `http://localhost:8000/docs`

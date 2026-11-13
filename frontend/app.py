@@ -40,6 +40,25 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.html("""
+<style>
+#disclaimer-footer {
+    position: fixed;
+    bottom: 0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    text-align: center;
+    font-size: 0.75rem;
+    color: #4a6a8a;
+    z-index: 9999;
+}
+</style>
+<div id="disclaimer-footer">
+    ClimeBot uses AI language models and can make mistakes. Always check important information against the cited sources.
+</div>
+""")
+
 
 def main() -> None:
     auth = AzureAuth()

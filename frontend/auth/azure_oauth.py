@@ -1,7 +1,9 @@
 import secrets
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
+import httpx
 import msal
 import streamlit as st
 from dotenv import load_dotenv
@@ -17,14 +19,10 @@ _CLIENT_ID = os.environ["AZURE_CLIENT_ID"]
 _CLIENT_SECRET = os.environ.get("AZURE_CLIENT_SECRET", "")
 _REDIRECT_URI = os.environ.get("AZURE_REDIRECT_URI", "http://localhost:8501")
 _ADMIN_CONTACT = os.environ.get("ADMIN_CONTACT", "the administrator")
+# Microsoft Graph permissions for Teams membership
+_SCOPES = [scope.strip() for scope in os.environ["AZURE_GRAPH_SCOPES"].split(",") if scope.strip()]
 
-# Falls back to a sensible default; override via AZURE_API_SCOPE in .env
-_SCOPES = [os.environ.get("AZURE_API_SCOPE", f"api://{_CLIENT_ID}/ClimeBot.Access")]
-
-# Comma-separated list of allowed UPNs/emails; empty means allow all authenticated users
-_ALLOWED_USERS: set[str] = {
-    u.strip().lower() for u in os.environ.get("ALLOWED_USERS", "").split(",") if u.strip()
-}
+_ALLOWED_TEAM_ID = os.environ["AZURE_ALLOWED_TEAM_ID"].lower()
 
 
 def _msal_app() -> msal.ConfidentialClientApplication:
@@ -33,6 +31,26 @@ def _msal_app() -> msal.ConfidentialClientApplication:
         authority=f"https://login.microsoftonline.com/{_TENANT_ID}",
         client_credential=_CLIENT_SECRET or None,
     )
+
+
+def check_team_membership(graph_token: str) -> bool:
+    url = "https://graph.microsoft.com/v1.0/me/joinedTeams"
+
+    with httpx.Client(timeout=10) as client:
+        while url:
+            response = client.get(
+                url,
+                headers={"Authorization": f"Bearer {graph_token}"},
+            )
+            response.raise_for_status()
+
+            data = response.json()
+
+            for team in data.get("value", []):
+                if team["id"].lower() == _ALLOWED_TEAM_ID:
+                    return True
+
+            url = data.get("@odata.nextLink")
 
 
 class AzureAuth:
@@ -93,6 +111,13 @@ class AzureAuth:
             state=self._get_state(),
             response_type="code",
         )
+
+        params = parse_qs(urlparse(auth_url).query)
+
+        logger.warning("MSAL authority tenant: {}", _TENANT_ID)
+        logger.warning("MSAL requested scopes: {}", params.get("scope"))
+        logger.warning("MSAL client ID: {}", params.get("client_id"))
+
         _logo = Path(__file__).parents[1] / "assets" / "images" / "logo_name_white.svg"
         _, col, _ = st.columns([1, 2, 1])
         with col:
@@ -136,25 +161,40 @@ class AzureAuth:
         )
 
         if "access_token" in result:
-            claims = result.get("id_token_claims", {})
-            # preferred_username may differ from email for some Entra ID account types
-            upn = (claims.get("preferred_username") or claims.get("email") or "").lower()
-            if _ALLOWED_USERS and upn not in _ALLOWED_USERS:
+            graph_token = result["access_token"]
+
+            try:
+                is_member = check_team_membership(graph_token)
+            except httpx.HTTPStatusError as exc:
                 st.query_params.clear()
-                st.session_state["_access_denied"] = True
-                st.session_state["_access_denied_user"] = upn
-                logger.warning("Access denied for unlisted user: {}", upn)
-                st.rerun()
+                st.error(f"Microsoft Graph returned HTTP " f"{exc.response.status_code}")
                 return
-            st.session_state["_token"] = result["access_token"]
-            st.session_state["_token_expiry"] = time.time() + result.get("expires_in", 3600)
-            st.session_state["_user"] = claims
+            except (httpx.RequestError, ValueError) as exc:
+                st.query_params.clear()
+                logger.warning("Graph membership check failed: {}", exc)
+                st.error("Could not verify Teams membership.")
+                return
+
             st.query_params.clear()
-            logger.info("User authenticated: {}", claims.get("name"))
-            st.rerun()
+
+            if is_member:
+                st.success(
+                    "Microsoft Graph consent succeeded. " "You are a member of the project Team."
+                )
+            else:
+                st.warning(
+                    "Microsoft Graph consent succeeded, "
+                    "but your account is not a member "
+                    "of the configured Team."
+                )
+
+            # Temporary test only: do not pass a Graph token
+            # to the existing FastAPI authentication dependency.
+            return
+
         else:
             st.query_params.clear()
-            st.error(f"Login failed: {result.get('error_description', 'Unknown error')}")
+            st.error(f"Login failed: " f"{result.get('error_description', 'Unknown error')}")
             logger.warning("Auth failure: {}", result)
 
     @staticmethod
