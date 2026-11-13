@@ -148,7 +148,9 @@ it automatically as a dependency. For bare-metal dev keep `QDRANT_PATH=./qdrant_
 
 ### ETL — scrape and index data
 
-To run a full refresh (scrape new data from the web and rebuild the index from scratch):
+To run a full refresh (scrape new data from the web, include sharepoint files and rebuild the index from scratch):
+
+**Important**: Remember to include data from sharepoint when refreshing the index.
 
 ```bash
 make run-etl
@@ -161,7 +163,7 @@ This runs `make scrape` followed by `make ingest` in sequence.
 ```
 data/
   scraped_docs/  # scraper writes here
-  sharepoint/    # documents exported from SharePoint; drop your own PDFs / images / .txt / .md here
+  sharepoint/    # SharePoint files and dated OneDrive_1_MM-DD-YYYY exports
 ```
 
 #### Individual ETL commands
@@ -175,16 +177,28 @@ make ingest           # DROP collections and reindex everything under data/ from
 > `make ingest-remote` does on the VM. `make ingest` always wipes the Qdrant collections and rebuilds from scratch — there is no separate "reingest". This guarantees the index exactly matches what is on disk and prevents stale entries.
 
 The ingestion pipeline:
-1. Extracts text from PDFs/DOCX and splits into chunks
-2. Extracts images from PDFs, describes each with the vision model, embeds the description
-3. Embeds all text chunks with the dense (Qwen) model
-4. Generates BM25 sparse vectors for all text and image descriptions via `fastembed`
-5. Indexes everything into Qdrant (`climate_docs` + `climate_images` collections), each point storing both a named `dense` and `sparse` vector
+1. Export the folder from general channel of the team and place it under under `data/sharepoint/` . The pipeline Selects the newest `OneDrive_1_MM-DD-YYYY` export.
+2. Documents can be messy and Docx and PDF versions may exist for the same document, sometime with multiple versions and therefore deduplication is complicated. The ingestion pipeline removes byte-identical files and prefers a PDF over an equivalent DOCX.
+3. Extracts text from PDFs/DOCX and splits it into chunks
+4. Extracts images from PDFs, describes each with the vision model, and embeds the description
+5. Stores one searchable catalog entry per Excel worksheet in Qdrant and worksheet rows in
+   `data/.index/spreadsheets.duckdb`
+6. Embeds text and catalog entries with dense and BM25 sparse vectors
+7. Indexes text into `climate_docs` and images into `climate_images`
+
+Qdrant point IDs are content-based, so renaming a dated export does not duplicate its content.
+The sidebar shows the completion time of the last successful indexing run. Spreadsheet values
+remain in DuckDB; when a worksheet catalog entry matches a query, only a bounded set of relevant
+rows is added to the answer context.
 
 Qdrant writes are split into batches of at most 16 MiB of serialized JSON, below
 the default 32 MiB request limit, so large documents do not exceed it.
 Images larger than 8 MiB are automatically JPEG-compressed reducing quality from 90 to 70 and then resizing
 proportionally only if needed.
+
+PDF sources are loaded from the backend only when requested. PDF-derived image results offer a
+single-page source preview and an optional extracted figure. Full PDFs up to 20 MiB can be viewed
+inline; larger PDFs are offered as downloads to avoid unnecessary latency and memory use.
 
 You can also skip scraping and drop files directly into `data/sharepoint/`, then run `make ingest`.
 
@@ -371,10 +385,15 @@ Replace `http://localhost:8000` with your VM URL in production.
 ### Health check (no auth required)
 
 ```bash
-curl -s http://localhost:8000/health | python -m json.tool
+# From the host
+curl -sS -i http://localhost:8000/health
+
+# From inside the backend container
+docker compose exec -T backend curl -sS -i http://localhost:8000/health
 ```
 
-Expected: `{"status": "ok"}`
+Expected: HTTP `200` and a JSON response containing `"status": "ok"` plus the latest index
+metadata.
 
 ### Obtain a token
 
@@ -394,23 +413,58 @@ echo $TOKEN | cut -c1-40   # sanity check: should start with eyJ
 ### Search
 
 ```bash
-curl -s -X POST http://localhost:8000/search \
+curl -sS -i -X POST http://localhost:8000/search \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"query": "climate extremes Switzerland", "top_k": 3}' \
-  | python -m json.tool
+  -d '{"query": "who works for WP 7", "top_k": 5, "include_images": false}'
+```
+
+To run the same request from inside the backend container:
+
+```bash
+docker compose exec -T -e TOKEN="$TOKEN" backend \
+  curl -sS -i -X POST http://localhost:8000/search \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"query": "who works for WP 7", "top_k": 5, "include_images": false}'
 ```
 
 ### Chat (streaming SSE)
 
 ```bash
-curl -N -X POST http://localhost:8000/chat \
+curl -sS -N -i -X POST http://localhost:8000/chat \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "What is NCCR CLIM+?"}]}'
+  -d '{"messages": [{"role": "user", "content": "Who works for WP 7?"}]}'
 ```
 
 `-N` disables buffering so you see tokens stream in real time.
+
+### Diagnose failed requests
+
+Check whether the request reached the backend and which HTTP status it returned:
+
+```bash
+docker compose logs --no-color --tail=100 backend
+```
+
+- `401 Invalid token issuer`: make sure `AZURE_TENANT_ID` is identical in
+  `backend/.env.dev` and `frontend/.env.dev`, then recreate both containers.
+- `401 Invalid token audience`: make sure `AZURE_CLIENT_ID` and `AZURE_API_SCOPE` refer to
+  the same Entra application in both environment files.
+- `404 Model not found`: list the model IDs exposed by the configured OpenAI-compatible endpoint
+  and copy the exact IDs into `OPENAI_MODEL`, `OPENAI_VISION_MODEL`, and
+  `OPENAI_EMBEDDING_MODEL`:
+
+  ```bash
+  make list-models ENV=dev
+  ```
+
+After changing an environment file, recreate the services so Docker loads the new values:
+
+```bash
+make up ENV=dev
+```
 
 ### FastAPI interactive docs
 
