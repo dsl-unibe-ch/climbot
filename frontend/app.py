@@ -1,13 +1,16 @@
 import os
 import tomllib
+from datetime import datetime
 from pathlib import Path
 
+import httpx
 import streamlit as st
 from auth.azure_oauth import AzureAuth
 from components.chat_ui import render_chat_history, render_sources, stream_from_backend
 from components.image_viewer import render_image_results
 
 _LOGO = Path(__file__).parent / "assets" / "images" / "logo_name_white.svg"
+_BACKEND = os.environ.get("BACKEND_URL")
 
 
 def _get_version() -> str:
@@ -19,6 +22,20 @@ def _get_version() -> str:
         with toml_path.open("rb") as f:
             return tomllib.load(f)["project"]["version"]
     return "unknown"
+
+
+@st.cache_data(ttl=60)
+def _get_index_status() -> tuple[dict | None, str | None]:
+    try:
+        response = httpx.get(f"{_BACKEND}/health", timeout=3.0)
+        response.raise_for_status()
+        return response.json().get("index"), None
+    except httpx.HTTPError as exc:
+        return None, str(exc)
+
+
+def _format_indexed_at(value: str) -> str:
+    return datetime.fromisoformat(value).strftime("%d %b %Y, %H:%M UTC")
 
 
 st.set_page_config(
@@ -54,6 +71,15 @@ def main() -> None:
     with st.sidebar:
         st.image(str(_LOGO), use_container_width=True)
         st.caption(f"Signed in as **{display_name}**")
+        index_status, index_error = _get_index_status()
+        if index_status and index_status.get("indexed_at"):
+            st.caption(
+                f"Knowledge base updated: **{_format_indexed_at(index_status['indexed_at'])}**"
+            )
+        elif index_error:
+            st.caption("Knowledge base update time unavailable.")
+        else:
+            st.caption("Knowledge base has not been indexed yet.")
         st.divider()
 
         st.subheader("🔍 Document Search")
@@ -77,7 +103,7 @@ def main() -> None:
 
     with col_chat:
         st.subheader("💬 Chat with ClimeBot")
-        render_chat_history()
+        render_chat_history(auth.get_access_token())
 
     with col_search:
         search = st.session_state.get("_search")
@@ -107,7 +133,7 @@ def main() -> None:
                     with st.expander("🧠 Reasoning", expanded=False):
                         if think_text:
                             st.markdown(think_text)
-                        render_sources(sources, key="live")
+                        render_sources(sources, auth.get_access_token(), key="live")
 
         st.session_state["messages"].append(
             {
