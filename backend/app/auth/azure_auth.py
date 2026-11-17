@@ -27,6 +27,41 @@ _VALID_ISSUERS = frozenset(
 )
 
 
+def _validate_claims(payload: dict) -> None:
+    token_aud = payload.get("aud", "")
+    api_audience = settings.azure_api_scope.rsplit("/", 1)[0]
+    valid_auds = {settings.azure_client_id, api_audience}
+    if isinstance(token_aud, str):
+        aud_set = {token_aud}
+    elif isinstance(token_aud, list) and all(isinstance(aud, str) for aud in token_aud):
+        aud_set = set(token_aud)
+    else:
+        aud_set = set()
+    if not aud_set & valid_auds:
+        logger.warning("Token has invalid audience")
+        raise HTTPException(status_code=401, detail="Invalid token audience")
+
+    if payload.get("iss") not in _VALID_ISSUERS:
+        logger.warning("Token has invalid issuer")
+        raise HTTPException(status_code=401, detail="Invalid token issuer")
+
+    if payload.get("tid") != settings.azure_tenant_id:
+        logger.warning("Token has invalid tenant")
+        raise HTTPException(status_code=401, detail="Invalid token tenant")
+
+    required_scope = settings.azure_api_scope.rsplit("/", 1)[-1]
+    scope_claim = payload.get("scp")
+    scopes = scope_claim.split() if isinstance(scope_claim, str) else []
+    if required_scope not in scopes:
+        logger.warning("Token is missing required API scope")
+        raise HTTPException(status_code=403, detail="Missing required API scope")
+
+    roles = payload.get("roles", [])
+    if not isinstance(roles, list) or settings.azure_required_app_role not in roles:
+        logger.warning("Token is missing required app role")
+        raise HTTPException(status_code=403, detail="Missing required app role")
+
+
 async def _get_jwks() -> dict:
     now = time.monotonic()
     if _JWKS_CACHE["keys"] is None or now - _JWKS_CACHE["fetched_at"] > _JWKS_TTL:
@@ -59,17 +94,7 @@ async def verify_token(
             options={"verify_aud": False, "verify_iss": False},
         )
 
-        token_aud = payload.get("aud", "")
-        valid_auds = {settings.azure_client_id, f"api://{settings.azure_client_id}"}
-        aud_set = set(token_aud) if isinstance(token_aud, list) else {token_aud}
-        if not aud_set & valid_auds:
-            logger.warning("Token aud={} not in {}", token_aud, valid_auds)
-            raise HTTPException(status_code=401, detail="Invalid token audience")
-
-        if payload.get("iss") not in _VALID_ISSUERS:
-            logger.warning("Token iss={} not in valid issuers", payload.get("iss"))
-            raise HTTPException(status_code=401, detail="Invalid token issuer")
-
+        _validate_claims(payload)
         return payload
 
     except HTTPException:

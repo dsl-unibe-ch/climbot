@@ -65,19 +65,17 @@ You need **one** app registration that serves both the frontend (OAuth client) a
 
 ### Steps in the Azure Portal
 
-1. Go to **Microsoft Entra ID → App registrations → New registration**.
-2. Name it `ClimeBot` and set the **Redirect URI** to `http://localhost:8501` (Web platform).
-3. After creation, note the **Application (client) ID** and **Directory (tenant) ID**.
-4. **Certificates & secrets** → New client secret → copy the value.
-5. **Expose an API** → Add a scope:
+1. Create a new app registration **Microsoft Entra ID → App registrations → New registration** with name and **Redirect URI**
+2. **Expose an API** → Add a scope:
    - Application ID URI: `api://<client-id>` (click *Set* to auto-fill)
-   - Scope name: choose any name — e.g. `ClimeBot.Access` (this is just a label)
-   - Who can consent: *Admins and users*
+   - Scope name: `ClimeBot.Access`
+   - Who can consent: *Admins only*
 
-   > **Why expose an API?** Access tokens carry an `aud` (audience) claim that declares *which resource* they are intended for. By exposing the scope here, tokens that the Streamlit frontend requests will carry `aud = <client-id>` — meaning they are explicitly issued for *your* FastAPI backend. Without this step, MSAL falls back to requesting Microsoft Graph tokens (audience `00000003-0000-0000-c000-000000000000`), which your backend would correctly reject because they weren’t meant for it.
-
-6. **API permissions** → Add the scope you just created (`api://<client-id>/ClimeBot.Access`) to the app itself, then **Grant admin consent**.
-7. Copy the full scope URI (`api://<client-id>/ClimeBot.Access`) into `AZURE_API_SCOPE` in your `.env`.
+   > **Why expose an API?** Access tokens carry an `aud` (audience) claim that declares *which resource* they are intended for. By exposing the scope here, tokens that the Streamlit frontend requests will carry `aud = <client-id>` — meaning they are explicitly issued for the FastAPI backend.
+3. **App roles** → create a user role with value `Climebot.Users`.
+4. **Enterprise applications** → select ClimeBot → **Properties** → set **Assignment required?** to **Yes**.
+5. Under **Users and groups**, assign the authorized group or users to the `Climebot.Users` role.
+6. Note the **Application (client) ID**, **Directory (tenant) ID**, **client secret** and the full scope URI for environment variables in section [Environment Setup](#2-environment-setup).
 
 > **Production VM**: add your VM's public URL as an additional Redirect URI (e.g. `https://climebot.example.com`).
 
@@ -85,7 +83,7 @@ You need **one** app registration that serves both the frontend (OAuth client) a
 
 ## 2. Environment Setup
 
-There are two env files per service — one for local development and one for production:
+There are two env files per service — one for local development aone for production:
 
 | File | Purpose |
 |------|---------|
@@ -108,19 +106,19 @@ Key differences between dev and prod:
 # backend/.env.dev
 QDRANT_PATH=./qdrant_storage   # local file-based Qdrant
 BACKEND_CORS_ORIGINS=http://localhost:8501
-AZURE_REDIRECT_URI=http://localhost:8501
 
 # backend/.env.prod
 QDRANT_HOST=qdrant             # Docker service name
 QDRANT_PORT=6333
 BACKEND_CORS_ORIGINS=https://climebot.dsl.unibe.ch
-AZURE_REDIRECT_URI=https://climebot.dsl.unibe.ch
 
 # frontend/.env.dev
-BACKEND_URL=http://localhost:8000
+BACKEND_URL=http://localhost:8000nd
+AZURE_REDIRECT_URI=http://localhost:8501
 
 # frontend/.env.prod
 BACKEND_URL=http://backend:8000   # Docker service name
+AZURE_REDIRECT_URI=https://climebot.dsl.unibe.ch
 ```
 
 ---
@@ -220,12 +218,6 @@ make logs
 # Stop
 make down
 ```
-
-The frontend constrains Starlette to a compatible pre-1.0 version: with
-Streamlit 1.61, Starlette 1.x can cause broken image previews and
-`Expected ASGI message 'http.response.start'` errors. After updating frontend
-dependencies, rebuild and recreate the frontend container; no reindexing is
-needed for this display issue.
 
 Services:
 - Streamlit UI → `http://localhost:8501`
@@ -483,6 +475,8 @@ http://localhost:8000/docs
 | `AZURE_CLIENT_SECRET` | — | Client secret |
 | `AZURE_REDIRECT_URI` | `http://localhost:8501` | OAuth redirect URI |
 | `AZURE_API_SCOPE` | `api://<client-id>/ClimeBot.Access` | Full scope URI from Entra ID "Expose an API" |
+| `AZURE_REQUIRED_APP_ROLE` | `Climebot.Users` | App role required by the backend |
+| `SUPPORT_EMAIL` | — | Email address used by the frontend request-support button |
 | `OPENAI_API_KEY` | — | OpenAI or GPUStack API key |
 | `OPENAI_BASE_URL` | _(empty)_ | Custom endpoint e.g. `https://gpustack.unibe.ch/v1`; blank = openai.com |
 | `OPENAI_MODEL` | `gpt-4o` | Chat + vision model name at the endpoint |

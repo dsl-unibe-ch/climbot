@@ -16,15 +16,7 @@ _TENANT_ID = os.environ["AZURE_TENANT_ID"]
 _CLIENT_ID = os.environ["AZURE_CLIENT_ID"]
 _CLIENT_SECRET = os.environ.get("AZURE_CLIENT_SECRET", "")
 _REDIRECT_URI = os.environ.get("AZURE_REDIRECT_URI", "http://localhost:8501")
-_ADMIN_CONTACT = os.environ.get("ADMIN_CONTACT", "the administrator")
-
-# Falls back to a sensible default; override via AZURE_API_SCOPE in .env
-_SCOPES = [os.environ.get("AZURE_API_SCOPE", f"api://{_CLIENT_ID}/ClimeBot.Access")]
-
-# Comma-separated list of allowed UPNs/emails; empty means allow all authenticated users
-_ALLOWED_USERS: set[str] = {
-    u.strip().lower() for u in os.environ.get("ALLOWED_USERS", "").split(",") if u.strip()
-}
+_SCOPES = [os.environ["AZURE_API_SCOPE"]]
 
 
 def _msal_app() -> msal.ConfidentialClientApplication:
@@ -62,22 +54,6 @@ class AzureAuth:
             self._complete_callback(params["code"], params.get("state", ""))
             return
 
-        if st.session_state.get("_access_denied"):
-            _logo = Path(__file__).parents[1] / "assets" / "images" / "logo_name_white.svg"
-            _, col, _ = st.columns([1, 2, 1])
-            with col:
-                st.image(str(_logo), use_container_width=True)
-                upn = st.session_state.get("_access_denied_user", "your account")
-                st.error(
-                    f"Access denied for **{upn}**.  "
-                    f"Please contact {_ADMIN_CONTACT} to request access."
-                )
-                if st.button("← Back to login"):
-                    st.session_state.pop("_access_denied", None)
-                    st.session_state.pop("_access_denied_user", None)
-                    st.rerun()
-            return
-
         if "error" in params:
             st.error(f"Authentication error: {params.get('error_description', params['error'])}")
             st.query_params.clear()
@@ -93,6 +69,7 @@ class AzureAuth:
             state=self._get_state(),
             response_type="code",
         )
+
         _logo = Path(__file__).parents[1] / "assets" / "images" / "logo_name_white.svg"
         _, col, _ = st.columns([1, 2, 1])
         with col:
@@ -115,7 +92,7 @@ class AzureAuth:
             )
             st.markdown(
                 "<p style='text-align:center;color:#4a6a8a;font-size:0.8rem;margin-top:1rem;'>"
-                "Access restricted to authorized NCCR CLIM+ members</p>",
+                "Access restricted to authorized NCCR CLIM+ members (Currently only from UniBE)</p>",
                 unsafe_allow_html=True,
             )
 
@@ -136,25 +113,22 @@ class AzureAuth:
         )
 
         if "access_token" in result:
-            claims = result.get("id_token_claims", {})
-            # preferred_username may differ from email for some Entra ID account types
-            upn = (claims.get("preferred_username") or claims.get("email") or "").lower()
-            if _ALLOWED_USERS and upn not in _ALLOWED_USERS:
+            expires_in = result.get("expires_in")
+            if not isinstance(expires_in, int):
                 st.query_params.clear()
-                st.session_state["_access_denied"] = True
-                st.session_state["_access_denied_user"] = upn
-                logger.warning("Access denied for unlisted user: {}", upn)
-                st.rerun()
+                logger.warning("MSAL response did not include a valid token lifetime")
+                st.error("Login failed: Microsoft did not return a valid token lifetime.")
                 return
+
             st.session_state["_token"] = result["access_token"]
-            st.session_state["_token_expiry"] = time.time() + result.get("expires_in", 3600)
-            st.session_state["_user"] = claims
+            st.session_state["_token_expiry"] = time.time() + expires_in
+            st.session_state["_user"] = result.get("id_token_claims", {})
             st.query_params.clear()
-            logger.info("User authenticated: {}", claims.get("name"))
             st.rerun()
+
         else:
             st.query_params.clear()
-            st.error(f"Login failed: {result.get('error_description', 'Unknown error')}")
+            st.error(f"Login failed: " f"{result.get('error_description', 'Unknown error')}")
             logger.warning("Auth failure: {}", result)
 
     @staticmethod

@@ -1,0 +1,11 @@
+This application is designed to assist in finding information related to the NCCR Clim + project.
+This application is intended for members of NCCR Clim + project.
+The chatbot is designed for general information and is not intended for personal or confidential inquiries. In such cases, please contact the relevant department directly.
+The chatbot is based on a service based on University of Bern's Infrastructre, specifically GPUStack https://gpustack.unibe.ch/#/login. When using the chatbot, the following data is recorded for the purposes of quality assurance, contextualisation of the query and the further development/improvement of the application: an anonymous session ID; the content of the user’s query; the chatbot’s response; and any feedback (ratings and comments) provided regarding the chatbot.
+By using this application, you consent to the processing of your user data as described above.
+The information provided by this application is for informational purposes only. The University of Bern does not guarantee the accuracy, completeness, or timeliness of the information provided.
+Responses are generated automatically by an AI system and are not reviewed by human staff. If your inquiry is complex or sensitive, and/or requires human assistance, please contact the appropriate department directly.
+Information provided by the chatbot does not constitute legal advice. For binding information, please consult the relevant departments or official university channels.
+The University of Bern is not liable for any consequences resulting from the use of information provided by the chatbot.
+Any misuse of the service—particularly in connection with illegal activities or the dissemination of harmful content—is prohibited. The University Executive Board’s directives regarding the use of IT resources at the University of Bern apply. Available at https://www.unibe.ch/unibe/portal/content/e152701/e332575/e332595/e371241/ul_ws_benutzung_it_ressourcen_ger.pdf: ul_ws_benutzung_it_ressourcen_ger.pdf
+The University of Bern reserves the right to update these terms of use at any time. Changes will be published on this page.
