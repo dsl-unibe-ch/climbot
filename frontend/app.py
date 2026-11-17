@@ -1,6 +1,7 @@
 import os
 import tomllib
 from pathlib import Path
+from urllib.parse import quote
 
 import streamlit as st
 from auth.azure_oauth import AzureAuth
@@ -8,6 +9,8 @@ from components.chat_ui import render_chat_history, render_sources, stream_from_
 from components.image_viewer import render_image_results
 
 _LOGO = Path(__file__).parent / "assets" / "images" / "logo_name_white.svg"
+_SUPPORT_EMAIL = os.environ["SUPPORT_EMAIL"]
+_SUPPORT_URL = f"mailto:{quote(_SUPPORT_EMAIL, safe='@+._-')}"
 
 
 def _get_version() -> str:
@@ -29,15 +32,18 @@ st.set_page_config(
 )
 
 # Fixed footer injected once at module level
-st.markdown(
+st.html(
     "<style>"
     "#dsl-footer{position:fixed;bottom:0.75rem;right:1rem;font-size:0.75rem;"
     "color:#4a6a8a;z-index:9999;pointer-events:auto;}"
     "#dsl-footer a{color:#4a6a8a;text-decoration:none;}"
     "#dsl-footer a:hover{color:#8ba3c0;text-decoration:underline;}"
+    "#dsl-footer .support-link{border:1px solid #4a6a8a;border-radius:0.35rem;"
+    "padding:0.2rem 0.45rem;}"
     "</style>"
-    f'<div id="dsl-footer">v{_get_version()} &nbsp;·&nbsp; Created by <a href="https://www.dsl.unibe.ch/" target="_blank">DSL</a></div>',
-    unsafe_allow_html=True,
+    f'<div id="dsl-footer">v{_get_version()} &nbsp;·&nbsp; Created by '
+    '<a href="https://www.dsl.unibe.ch/" target="_blank">DSL</a>'
+    f' &nbsp;·&nbsp; <a class="support-link" href="{_SUPPORT_URL}">Request Access/Support</a></div>',
 )
 
 st.html("""
@@ -55,7 +61,7 @@ st.html("""
 }
 </style>
 <div id="disclaimer-footer">
-    ClimeBot uses AI language models and can make mistakes. Always check important information against the cited sources.
+    ClimeBot uses AI language models and can make mistakes. Always check important information against the cited sources. Powered by open weight models at <a href="https://gpustack.unibe.ch/#/login" target="_blank"> GPUStack UniBE</a>
 </div>
 """)
 

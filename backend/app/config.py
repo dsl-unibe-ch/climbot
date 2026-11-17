@@ -14,7 +14,8 @@ class Settings(BaseSettings):
     # Microsoft Entra ID
     azure_tenant_id: str
     azure_client_id: str
-    azure_client_secret: str = ""
+    azure_api_scope: str
+    azure_required_app_role: str
 
     # OpenAI — or any OpenAI-compatible endpoint (e.g. GPUStack)
     openai_base_url: str = ""  # empty → use OpenAI directly
