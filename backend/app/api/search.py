@@ -3,6 +3,9 @@ from fastapi import APIRouter, Depends
 from app.auth.azure_auth import verify_token
 from app.config import get_settings
 from app.core.embeddings import embed_sparse, embed_texts
+from app.core.index_state import read_index_state
+from app.core.source_files import pdf_source_metadata
+from app.core.spreadsheets import search_spreadsheet_rows, spreadsheet_db_path
 from app.core.vectorstore import search_async
 from app.models.schemas import SearchRequest, SearchResponse, SearchResult
 
@@ -23,15 +26,31 @@ async def search(request: SearchRequest, _user: dict = Depends(verify_token)) ->
         sparse_values,
         top_k=request.top_k,
     )
+    indexed_at = (read_index_state(settings.data_dir) or {}).get("indexed_at")
     for hit in text_hits:
+        payload = hit.payload or {}
+        metadata = {k: v for k, v in payload.items() if k != "content"}
+        metadata.update(pdf_source_metadata(settings.data_dir, payload.get("source_path", "")))
+        result_type = payload.get("type", "text")
+        if result_type == "spreadsheet":
+            metadata["records"] = [
+                {"row_number": row.row_number, **row.values}
+                for row in search_spreadsheet_rows(
+                    spreadsheet_db_path(settings.data_dir),
+                    payload.get("content_hash", ""),
+                    payload.get("sheet", ""),
+                    request.query,
+                )
+            ]
+        metadata["indexed_at"] = indexed_at
         results.append(
             SearchResult(
                 id=str(hit.id),
                 score=hit.score,
-                content=hit.payload.get("content", ""),
-                source=hit.payload.get("source", ""),
-                result_type="text",
-                metadata={k: v for k, v in hit.payload.items() if k != "content"},
+                content=payload.get("content", ""),
+                source=payload.get("source", ""),
+                result_type=result_type,
+                metadata=metadata,
             )
         )
 
@@ -44,17 +63,19 @@ async def search(request: SearchRequest, _user: dict = Depends(verify_token)) ->
             top_k=3,
         )
         for hit in image_hits:
+            payload = hit.payload or {}
+            metadata = {k: v for k, v in payload.items() if k not in ("content", "image_base64")}
+            metadata.update(pdf_source_metadata(settings.data_dir, payload.get("source_path", "")))
+            metadata["indexed_at"] = indexed_at
             results.append(
                 SearchResult(
                     id=str(hit.id),
                     score=hit.score,
-                    content=hit.payload.get("content", ""),
-                    source=hit.payload.get("source", ""),
+                    content=payload.get("content", ""),
+                    source=payload.get("source", ""),
                     result_type="image",
-                    image_base64=hit.payload.get("image_base64"),
-                    metadata={
-                        k: v for k, v in hit.payload.items() if k not in ("content", "image_base64")
-                    },
+                    image_base64=payload.get("image_base64"),
+                    metadata=metadata,
                 )
             )
 

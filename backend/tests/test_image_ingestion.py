@@ -119,23 +119,49 @@ class ImagePipelineTests(unittest.TestCase):
             self.assertEqual(ingestion._ingest_standalone_image(path, root), 1)
             self.assertEqual(path.read_bytes(), self.original)
         point = self.assert_compressed_point()
-        digest = hashlib.sha1(self.original).hexdigest()[:16]  # noqa: S324
-        self.assertEqual(point.id, str(uuid.uuid5(ingestion._ID_NS, f"chart.png:{digest}")))
+        digest = hashlib.sha256(self.original).hexdigest()
+        self.assertEqual(point.id, str(uuid.uuid5(ingestion._ID_NS, f"{digest}:image")))
 
     def test_pdf_image_is_compressed_and_indexed_not_skipped(self):
         page = MagicMock()
         page.get_images.return_value = [(7,)]
+        document = MagicMock(page_count=1)
+        document.load_page.return_value = page
         pix = MagicMock(width=128, height=128, n=3, alpha=0)
         pix.tobytes.return_value = self.original
         with (
-            patch.object(ingestion.fitz, "open", return_value=[page]),
+            patch.object(ingestion.fitz, "open", return_value=document),
             patch.object(ingestion.fitz, "Pixmap", return_value=pix),
         ):
             self.assertEqual(
-                ingestion._ingest_pdf_images(Path("/docs/chart.pdf"), Path("/docs")), 1
+                ingestion._ingest_pdf_images(
+                    Path("/docs/chart.pdf"), Path("/docs"), content_hash="pdf-hash"
+                ),
+                1,
             )
         point = self.assert_compressed_point()
-        self.assertEqual(point.id, str(uuid.uuid5(ingestion._ID_NS, "chart.pdf:img:0:7")))
+        self.assertEqual(point.id, str(uuid.uuid5(ingestion._ID_NS, "pdf-hash:img:0:7")))
+
+    def test_duplicate_pdf_images_are_described_once(self):
+        page = MagicMock()
+        page.get_images.return_value = [(7,), (8,)]
+        document = MagicMock(page_count=1)
+        document.load_page.return_value = page
+        pix = MagicMock(width=128, height=128, n=3, alpha=0)
+        pix.tobytes.return_value = self.original
+        with (
+            patch.object(ingestion.fitz, "open", return_value=document),
+            patch.object(ingestion.fitz, "Pixmap", return_value=pix),
+        ):
+            self.assertEqual(
+                ingestion._ingest_pdf_images(
+                    Path("/docs/chart.pdf"), Path("/docs"), content_hash="pdf-hash"
+                ),
+                1,
+            )
+
+        self.embed_image.assert_called_once()
+        self.upsert_points.assert_called_once()
 
     def test_nested_files_store_only_file_name_as_source(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -158,10 +184,10 @@ class ImagePipelineTests(unittest.TestCase):
 
         self.assertEqual(image_point.payload["source"], "chart.png")
         self.assertEqual(text_point.payload["source"], "notes.txt")
-        digest = hashlib.sha1(self.original).hexdigest()[:16]  # noqa: S324
+        digest = hashlib.sha256(self.original).hexdigest()
         self.assertEqual(
             image_point.id,
-            str(uuid.uuid5(ingestion._ID_NS, f"sharepoint/sub/chart.png:{digest}")),
+            str(uuid.uuid5(ingestion._ID_NS, f"{digest}:image")),
         )
 
 

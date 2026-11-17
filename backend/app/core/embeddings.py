@@ -70,8 +70,10 @@ def embed_image(image_bytes: bytes) -> tuple[list[float], str]:
                     {
                         "type": "text",
                         "text": (
-                            "Describe this image in detail, focusing on any climate-related "
-                            "data, charts, graphs, maps, or scientific information it contains."
+                            "In at most 150 words, objectively describe this image. Prioritize "
+                            "climate-related data, charts, graphs, maps, scientific information, "
+                            "and visible text. If it is a portrait, logo, or other non-climate "
+                            "image, briefly state what it shows instead of refusing."
                         ),
                     },
                     {

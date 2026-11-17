@@ -1,8 +1,7 @@
-streamlit==1.66.1
-# Keep Starlette <1.0: backend fastapi==0.115.0 breaks on Starlette 1.x in the shared local .venv.
-starlette>=0.46.0,<1.0
-httpx==0.27.2
-msal==1.31.0
+streamlit[pdf]==1.67.0
+starlette==1.10.0
+httpx==0.28.1
+msal==1.39.0
 Pillow==13.0.0
 python-dotenv==1.2.2
 loguru==0.7.2

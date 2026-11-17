@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import os
 from datetime import UTC, datetime
+from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 from scrapy.linkextractors import LinkExtractor
@@ -47,6 +48,18 @@ def _env_list(key: str, default: list[str]) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()] if raw else default
 
 
+def _replace_links_with_text_and_url(soup: BeautifulSoup, base_url: str) -> None:
+    for anchor in soup.find_all("a", href=True):
+        text = " ".join(anchor.stripped_strings)
+        href = str(anchor.get("href", "")).strip()
+        if not text or not href:
+            continue
+        absolute_url = urljoin(base_url, href)
+        if urlsplit(absolute_url).scheme not in {"http", "https"}:
+            continue
+        anchor.replace_with(f"{text} ({absolute_url})")
+
+
 class ClimateSpider(CrawlSpider):
     name = "climate_spider"
 
@@ -73,6 +86,7 @@ class ClimateSpider(CrawlSpider):
         soup = BeautifulSoup(response.text, "html.parser")
         for tag in soup(["script", "style", "nav", "header", "footer", "aside", "noscript"]):
             tag.decompose()
+        _replace_links_with_text_and_url(soup, response.url)
         page_text = " ".join(soup.get_text(separator=" ").split())
         if page_text:
             url_hash = hashlib.sha1(response.url.encode()).hexdigest()[:20]  # noqa: S324

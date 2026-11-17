@@ -7,31 +7,43 @@ import httpx
 import streamlit as st
 from dotenv import load_dotenv
 
+from components.pdf_viewer import render_pdf_source
+
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 _BACKEND = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 
-def render_sources(sources: list, key: str = "0") -> None:
+def render_sources(sources: list, token: str, key: str = "0") -> None:
     if not sources:
         return
     _state_key = f"_show_all_src_{key}"
     show_all = st.session_state.get(_state_key, False)
     visible = sources if show_all else sources[:3]
     with st.expander(f"📎 {len(sources)} source(s)", expanded=False):
-        for src in visible:
-            icon = "🖼️" if src.get("type") == "image" else "📄"
+        for index, src in enumerate(visible):
+            icon = {
+                "image": "🖼️",
+                "spreadsheet": "📊",
+            }.get(src.get("type"), "📄")
             label = f"{icon} {src['source']}"
+            if src.get("sheet"):
+                label += f"  ·  {src['sheet']}"
             if src.get("page") is not None:
-                label += f"  ·  p. {src['page']}"
+                page_number = src["page"] + 1 if src.get("source_path") else src["page"]
+                label += f"  ·  p. {page_number}"
             label += f"  ·  score {src['score']}"
             with st.expander(label, expanded=False):
-                if src.get("type") == "image" and src.get("image_base64"):
+                is_pdf = render_pdf_source(src, token, f"{key}_{index}")
+                if not is_pdf and src.get("type") == "image" and src.get("image_base64"):
                     img_bytes = base64.b64decode(src["image_base64"])
-                    st.image(img_bytes, use_container_width=True)
+                    st.image(img_bytes, width="stretch")
                 snippet = src.get("snippet", "").strip()
                 if snippet:
                     st.caption(snippet)
+                records = src.get("records", [])
+                if records:
+                    st.dataframe(records, use_container_width=True, hide_index=True)
                 elif src.get("type") != "image":
                     st.markdown("_No preview available._")
         if len(sources) > 3:
@@ -45,7 +57,7 @@ def render_sources(sources: list, key: str = "0") -> None:
                     st.rerun()
 
 
-def render_chat_history() -> None:
+def render_chat_history(token: str) -> None:
     """Render only the conversation history; chat input is handled at page level."""
     if "messages" not in st.session_state:
         st.session_state["messages"] = []
@@ -58,7 +70,7 @@ def render_chat_history() -> None:
                     if msg.get("think"):
                         st.markdown(msg["think"])
                     if msg.get("sources"):
-                        render_sources(msg["sources"], key=str(i))
+                        render_sources(msg["sources"], token, key=str(i))
 
 
 def stream_from_backend(messages: list[dict], token: str) -> tuple[str, str, list]:
